@@ -1,4 +1,3 @@
-# Getting Started with Create React App
 # AI Chat Widget with MCP Tools
 
 A modern, customizable chat widget with voice input support and MCP (Model Communication Protocol) tool integration for interacting with AI assistants.
