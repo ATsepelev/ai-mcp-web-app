@@ -1,0 +1,285 @@
+.test-area {
+  padding: 20px;
+  border: 1px dashed #999;
+  border-radius: 8px;
+  background-color: #f8f9fa;
+  font-family: Arial, sans-serif;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.test-area h3 {
+  margin-top: 0;
+  color: #333;
+  font-size: 1.2rem;
+}
+
+/* Стили для формы отзыва */
+.review-form-container {
+  margin-bottom: 30px;
+  padding: 20px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.review-form-container h4 {
+  margin-top: 0;
+  color: #2c3e50;
+  font-size: 1.1rem;
+}
+
+.review-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-group label {
+  font-weight: 600;
+  color: #34495e;
+  font-size: 0.9rem;
+}
+
+.form-input, .form-textarea {
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.form-input:focus, .form-textarea:focus {
+  outline: none;
+  border-color: #3498db;
+  box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
+.form-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* Стили для звездного рейтинга */
+.stars-rating {
+  display: flex;
+  gap: 5px;
+  margin: 5px 0;
+}
+
+.star {
+  font-size: 24px;
+  color: #ddd;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.star.filled {
+  color: #f39c12;
+}
+
+.star:hover {
+  color: #f39c12;
+}
+
+.stars-label {
+  font-size: 0.85rem;
+  color: #7f8c8d;
+  margin-top: 5px;
+}
+
+.submit-button {
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+  align-self: flex-start;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.submit-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2980b9, #2573a7);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.submit-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.success-message {
+  margin-top: 15px;
+  padding: 10px 15px;
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  color: white;
+  border-radius: 4px;
+  font-weight: 600;
+  display: inline-block;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Стили для старой тестовой области */
+.old-test-area {
+  padding-top: 20px;
+  border-top: 1px solid #eee;
+}
+
+.old-test-area input[type="text"] {
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-right: 10px;
+  font-family: inherit;
+}
+
+.old-test-area button {
+  padding: 8px 16px;
+  background-color: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background-color 0.2s;
+}
+
+.old-test-area button:hover {
+  background-color: #1976d2;
+}
+
+.old-test-area p {
+  margin-top: 15px;
+  color: #666;
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 768px) {
+  .test-area {
+    padding: 15px;
+  }
+
+  .review-form-container {
+    padding: 15px;
+  }
+
+  .form-input, .form-textarea {
+    font-size: 16px; /* Предотвращает зум на iOS */
+  }
+
+  .submit-button {
+    width: 100%;
+  }
+
+  .old-test-area {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .old-test-area input[type="text"] {
+    margin-right: 0;
+    margin-bottom: 10px;
+  }
+}
+
+.form-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.submit-button {
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+  flex: 1;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.submit-button:hover:not(:disabled) {
+  background: linear-gradient(135deg, #2980b9, #2573a7);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.submit-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.reset-button {
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #95a5a6, #7f8c8d);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s;
+  flex: 1;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.reset-button:hover {
+  background: linear-gradient(135deg, #7f8c8d, #6c7a7c);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.success-message {
+  margin-top: 15px;
+  padding: 10px 15px;
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  color: white;
+  border-radius: 4px;
+  font-weight: 600;
+  display: inline-block;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Адаптивность для мобильных устройств */
+@media (max-width: 768px) {
+  .form-buttons {
+    flex-direction: column;
+  }
+
+  .submit-button,
+  .reset-button {
+    width: 100%;
+  }
+}
