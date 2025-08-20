@@ -1,70 +1,160 @@
 # Getting Started with Create React App
+# AI Chat Widget with MCP Tools
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A modern, customizable chat widget with voice input support and MCP (Model Communication Protocol) tool integration for interacting with AI assistants.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+- **Voice Input**: Speech-to-text functionality for hands-free messaging
+- **MCP Integration**: Built-in support for Model Communication Protocol tools
+- **Customizable UI**: Multiple positioning options and component visibility settings
+- **Multi-language Support**: Localization support with custom locales
+- **Tool Integration**: Built-in review form tools with DOM manipulation capabilities
+- **Responsive Design**: Works on desktop and mobile devices
 
-### `npm start`
+## Installation
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```bash
+npm install ai-mcp-web-app
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Usage
 
-### `npm test`
+### Basic Implementation
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```javascript
+import {ChatWidget, useMCPServer} from "ai-mcp-web-app";
+import {TOOLS} from "./mcp_tools";
 
-### `npm run build`
+function App() {
+  useMCPServer(TOOLS);
+  
+  return (
+    <div className="App">
+      <ChatWidget 
+        modelName="gpt-4o-mini"
+        baseUrl="http://127.0.0.1:1234/v1"
+        apiKey="your-api-key"
+        locale="en"
+      />
+    </div>
+  );
+}
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Custom Configuration
+```javascript
+<ChatWidget 
+  position="bottom-right"
+  showComponents="both" // 'both', 'chat', 'voice'
+  chatTitle="My AI Assistant"
+  greeting="Welcome! How can I help you today?"
+  modelName="gpt-4o-mini"
+  baseUrl="http://127.0.0.1:1234/v1"
+  apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+  locale="en"
+  customLocales={{
+    en: {
+      openChat: "Open chat",
+      voiceInput: "Voice input",
+      // ... other custom translations
+    }
+  }}
+/>
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Internal MCP Tool Integration
+```javascript
+useMCPServer(TOOLS);
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## API Configuration
+### OpenAI Compatible Endpoints
+- **modelName**: AI model name (default: 'gpt-4o-mini')
+- **baseUrl**: API endpoint URL (default: 'http://127.0.0.1:1234/v1')
+- **apiKey**: Authentication key for API access
 
-### `npm run eject`
+### Widget Positioning
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+Available positions:
+- `top-left`
+- `top-right` 
+- `bottom-left`
+- `bottom-right` (default)
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Localization
+Supported languages:
+- English (`en`)
+- Russian (`ru`)
+- Chinese (`zh`)
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+Add custom locales:
+```javascript
+const customLocales = {
+  fr: {
+    openChat: "Ouvrir le chat",
+    voiceInput: "Entrée vocale",
+    // ... other French translations
+  }
+};
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+<ChatWidget customLocales={customLocales} locale="fr" />
+```
 
-## Learn More
+## Styling
+The widget uses CSS modules with extensive customization options:
+- Gradient backgrounds
+- Smooth animations
+- Responsive shadows
+- Mobile-friendly design
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+Customize appearance by modifying `ChatWidget.css` or providing custom component.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Browser Support
+- Chrome 60+
+- Firefox 55+
+- Safari 12+
+- Edge 79+
 
-### Code Splitting
+## Development
+### Project Structure
+```
+lib/
+├── ChatWidget/
+│   ├── ChatWidget.js
+│   ├── ChatWidget.css
+│   └── locales/
+│   │   ├── index.js
+│   │   ├── ...
+├── locales/
+│   ├── openai/
+│   │   ├── index.js
+│   │   ├── ...
+├── mcp_core.js
+├── useMCPClient.js
+├── useMCPServer.js
+└── useOpenAIChat.js
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+### Key Components
+- **ChatWidget**: Main UI component
+- **useOpenAIChat**: Chat logic and message handling
+- **MCP Core**: Protocol implementation for tool communication
+- **MCP Tools**: Built-in DOM manipulation tools
+- **useMCPClient/Server**: React hooks for MCP integration
 
-### Analyzing the Bundle Size
+## Contributing
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## License
 
-### Making a Progressive Web App
+MIT License - see LICENSE file for details.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+## Support
 
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+For issues and feature requests, please use the GitHub issue tracker.
+```
