@@ -1,0 +1,57 @@
+{
+  "name": "ai-mcp-web-app",
+  "version": "1.1.1",
+  "type": "module",
+  "description": "A modern chat widget with voice input and in-browser MCP tool integration for AI assistants",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "browser": "dist/index.umd.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.js",
+      "browser": "./dist/index.umd.js"
+    },
+    "./styles": {
+      "import": "./dist/chat-widget.css",
+      "require": "./dist/chat-widget.css",
+      "browser": "./dist/chat-widget.css"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "author": "Aleksey Tsepelev",
+  "license": "MIT",
+  "scripts": {
+    "build": "rollup -c rollup.config.cjs",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0",
+    "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@babel/core": "7.28.3",
+    "@babel/preset-env": "7.28.3",
+    "@babel/preset-react": "7.27.1",
+    "@rollup/plugin-babel": "6.0.4",
+    "@rollup/plugin-commonjs": "25.0.8",
+    "@rollup/plugin-node-resolve": "15.3.1",
+    "@rollup/plugin-terser": "0.4.4",
+    "rollup-plugin-dts": "^6.1.0",
+    "postcss": "8.5.6",
+    "rollup": "3.29.5",
+    "rollup-plugin-postcss": "4.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ATsepelev/ai-chat-widget-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ATsepelev/ai-chat-widget-mcp/issues"
+  },
+  "homepage": "https://github.com/ATsepelev/ai-chat-widget-mcp#readme"
+}
