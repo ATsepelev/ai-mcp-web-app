@@ -22,7 +22,7 @@ npm install ai-mcp-web-app
 To build the widget from source for customization or contribution:
 
 ```bash
-git clone https://github.com/your-repo/ai-mcp-web-app.git
+git clone https://github.com/ATsepelev/ai-mcp-web-app.git
 cd ai-mcp-web-app
 npm install
 npm run build
