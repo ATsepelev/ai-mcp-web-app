@@ -51,6 +51,8 @@ const ChatWidget = ({
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const isExpandedRef = useRef(false);
+  const latestSendMessageRef = useRef(null);
 
   const mergedLocales = {
     ...defaultLocales,
@@ -88,56 +90,89 @@ const ChatWidget = ({
   );
 
   useEffect(() => {
+    // Keep refs in sync with latest values without re-initializing recognition
+    isExpandedRef.current = isExpanded;
+  }, [isExpanded]);
+
+  useEffect(() => {
+    latestSendMessageRef.current = sendMessage;
+  }, [sendMessage]);
+
+  useEffect(() => {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.interimResults = true;
       recognition.lang = locale === 'en' ? 'en-US' :
                         locale === 'zh' ? 'zh-CN' : 'ru-RU';
 
+      let buffer = '';
+
+      const deliverTranscript = () => {
+        const t = (buffer || '').trim();
+        if (!t) return; // guard empty transcript
+        if (isExpandedRef.current) {
+          setInputValue(prev => prev + (prev ? ' ' : '') + t);
+        } else if (typeof latestSendMessageRef.current === 'function') {
+          latestSendMessageRef.current(t);
+        }
+        buffer = '';
+      };
+
       recognition.onstart = () => {
-        console.log('Speech recognition started');
         setRecognitionError(null);
       };
 
       recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        console.log('Recognized text:', transcript);
-
-        if (isExpanded) {
-          setInputValue(prev => prev + (prev ? ' ' : '') + transcript);
-        } else {
-          sendMessage(transcript);
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i];
+          if (res[0] && res[0].transcript) {
+            buffer += res[0].transcript;
+            if (res.isFinal) {
+              deliverTranscript();
+            }
+          }
         }
       };
 
+      recognition.onend = () => {
+        // If ended without final result, still attempt to deliver what we have
+        deliverTranscript();
+        setIsRecording(false);
+      };
+
       recognition.onerror = (event) => {
-        console.error('Speech recognition error:', event.error);
         setRecognitionError(event.error);
         setIsRecording(false);
       };
 
-      recognition.onend = () => {
-        console.log('Speech recognition ended');
-        setIsRecording(false);
+      recognition.onnomatch = () => {
+        setRecognitionError('no-speech');
+      };
+
+      recognition.onspeechend = () => {
+        try { recognition.stop(); } catch (e) {}
+      };
+
+      recognition.onaudioend = () => {
+        // no-op, onend will handle delivery/state
       };
 
       recognitionRef.current = recognition;
     } else {
-      console.warn('Web Speech API is not supported in this browser');
       setRecognitionError('not_supported');
     }
 
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try { recognitionRef.current.stop(); } catch (e) {}
       }
       if (tooltipTimeoutRef.current) {
         clearTimeout(tooltipTimeoutRef.current);
       }
     };
-  }, [isExpanded, sendMessage, locale]);
+  }, [locale]);
 
   const getErrorMessage = (error) => {
     switch (error) {
@@ -182,12 +217,13 @@ const ChatWidget = ({
     if (showComponents === 'chat') return;
 
     setTooltipMessage(message);
+    setShowTooltip(true);
     if (tooltipTimeoutRef.current) {
       clearTimeout(tooltipTimeoutRef.current);
     }
     tooltipTimeoutRef.current = setTimeout(() => {
       setShowTooltip(false);
-    }, 300);
+    }, 2000);
   };
 
   const toggleVoiceRecording = () => {
@@ -203,13 +239,17 @@ const ChatWidget = ({
       setIsRecording(false);
     } else {
       try {
-        recognitionRef.current.start();
-        setIsRecording(true);
-        setRecognitionError(null);
+        // Guard against InvalidStateError in Chrome if start() is called while already starting
+        if (!isRecording) {
+          recognitionRef.current.start();
+          setIsRecording(true);
+          setRecognitionError(null);
+        }
       } catch (error) {
         console.error('Error starting recording:', error);
-        setRecognitionError('start_failed');
-        showTemporaryTooltip(getErrorMessage('start_failed'));
+        const code = (error && error.name) || 'start_failed';
+        setRecognitionError(code);
+        showTemporaryTooltip(getErrorMessage(code));
       }
     }
   };
