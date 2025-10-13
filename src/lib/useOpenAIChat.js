@@ -42,6 +42,43 @@ function parseAssistantResponse(assistantMsg) {
         displayContent = displayContent.replace(thinkMatch[0], '').trim();
       }
 
+      // gpt-oss control tags format: <|constrain|>func=functions.name ... <|message|>{json}
+      const ossFuncMatch = displayContent.match(/<\|constrain\|>\s*func=([\w.\-]+)/i);
+      const ossMsgIndex = displayContent.lastIndexOf('<|message|>');
+      if (ossFuncMatch && ossMsgIndex !== -1) {
+        try {
+          const rawFunc = ossFuncMatch[1] || '';
+          const funcName = rawFunc.replace(/^functions\./, '');
+          const jsonText = displayContent.slice(ossMsgIndex + '<|message|>'.length).trim();
+          let funcArgs = {};
+          if (jsonText) {
+            try {
+              funcArgs = JSON.parse(jsonText);
+            } catch (e) {
+              // pass as string; will be parsed downstream
+              funcArgs = jsonText;
+            }
+          }
+
+          toolCallsJson = [{
+            id: generateToolCallId(),
+            name: funcName,
+            arguments: funcArgs
+          }];
+
+          // Remove JSON payload from display and strip all gpt-oss control tags
+          displayContent = displayContent
+            .slice(0, ossMsgIndex)
+            .replace(/<\|channel\|>[^<]*?/gi, '')
+            .replace(/<\|constrain\|>[^<]*?/gi, '')
+            .replace(/<\|message\|>/gi, '')
+            .trim();
+        } catch (e) {
+          console.error('gpt-oss parse error:', e);
+        }
+      }
+
+      // Legacy bracketed JSON format fallback
       const toolCallMatch = displayContent.match(/\[([\s\S]*?)\]/i);
       if (toolCallMatch) {
         try {
@@ -66,6 +103,11 @@ function parseAssistantResponse(assistantMsg) {
       // Convert to string if value exists
       displayContent = String(assistantMsg.content);
     }
+  }
+
+  // Map provider-specific reasoning field if present (e.g., gpt-oss)
+  if (!thinkText && typeof assistantMsg.reasoning === 'string' && assistantMsg.reasoning.trim()) {
+    thinkText = assistantMsg.reasoning.trim();
   }
 
   return {
@@ -276,11 +318,23 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
         // Add to history
         conversationHistoryRef.current.push(assistantMsg);
 
-        // Add displayable content
+        // Add displayable content or tool-calls placeholder for UI
         if (parsed.displayContent.trim()) {
           setMessages(prev => [...prev, {
             role: "assistant",
             content: parsed.displayContent
+          }]);
+        } else if (parsed.toolCallsJson?.length) {
+          // Show that assistant is calling tools (UI renders list from tool_calls)
+          const uiToolCalls = parsed.toolCallsJson.map(tc => ({
+            function: {
+              name: tc.name,
+              arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments)
+            }
+          }));
+          setMessages(prev => [...prev, {
+            role: "assistant",
+            tool_calls: uiToolCalls
           }]);
         }
 

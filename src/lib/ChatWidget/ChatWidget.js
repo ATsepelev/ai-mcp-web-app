@@ -39,7 +39,7 @@ const ChatWidget = ({
                       apiKey = null,
                       toolsSchema = [],
                       locale = 'en',
-                      customLocales = {}
+                  customLocales = {}
                     }) => {
   const [inputValue, setInputValue] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -53,6 +53,11 @@ const ChatWidget = ({
   const inputRef = useRef(null);
   const isExpandedRef = useRef(false);
   const latestSendMessageRef = useRef(null);
+  const isStartingRef = useRef(false);
+  const hasStartedRef = useRef(false);
+  const hasGotResultRef = useRef(false);
+  const hasRetriedStartRef = useRef(false);
+  const lastMicActionAtRef = useRef(0);
 
   const mergedLocales = {
     ...defaultLocales,
@@ -122,9 +127,13 @@ const ChatWidget = ({
 
       recognition.onstart = () => {
         setRecognitionError(null);
+        isStartingRef.current = false;
+        hasStartedRef.current = true;
+        setIsRecording(true);
       };
 
       recognition.onresult = (event) => {
+        hasGotResultRef.current = true;
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const res = event.results[i];
           if (res[0] && res[0].transcript) {
@@ -139,11 +148,28 @@ const ChatWidget = ({
       recognition.onend = () => {
         // If ended without final result, still attempt to deliver what we have
         deliverTranscript();
+        // If Chrome ended immediately before actually starting, retry once
+        if (!hasStartedRef.current && !hasGotResultRef.current && !hasRetriedStartRef.current) {
+          hasRetriedStartRef.current = true;
+          try {
+            recognition.start();
+            isStartingRef.current = true;
+            return;
+          } catch (e) {
+            // fall through to reset state
+          }
+        }
         setIsRecording(false);
+        isStartingRef.current = false;
       };
 
       recognition.onerror = (event) => {
-        setRecognitionError(event.error);
+        // Suppress noisy 'aborted' errors from rapid toggling
+        if (event && event.error === 'aborted') {
+          setIsRecording(false);
+          return;
+        }
+        setRecognitionError(event?.error || 'unknown');
         setIsRecording(false);
       };
 
@@ -234,16 +260,29 @@ const ChatWidget = ({
       return;
     }
 
+    // Cooldown disabled per user request; keep timestamp for potential diagnostics
+    lastMicActionAtRef.current = Date.now();
+
     if (isRecording) {
       recognitionRef.current.stop();
       setIsRecording(false);
     } else {
       try {
-        // Guard against InvalidStateError in Chrome if start() is called while already starting
-        if (!isRecording) {
+        // Guard against overlapping starts
+        if (isStartingRef.current) return;
+        isStartingRef.current = true;
+        hasStartedRef.current = false;
+        hasGotResultRef.current = false;
+        setRecognitionError(null);
+        hasRetriedStartRef.current = false;
+        // Start immediately; if Chrome ends immediately we auto-retry in onend
+        try {
           recognitionRef.current.start();
-          setIsRecording(true);
-          setRecognitionError(null);
+        } catch (err) {
+          isStartingRef.current = false;
+          const code = (err && err.name) || 'start_failed';
+          setRecognitionError(code);
+          showTemporaryTooltip(getErrorMessage(code));
         }
       } catch (error) {
         console.error('Error starting recording:', error);
