@@ -12,6 +12,7 @@ export default {
   ai: "AI",
   tool: "Tool",
   callingTools: "Calling tools:",
+  callingToolGeneric: "Calling a tool...",
   enterMessage: "Enter message...",
   speaking: "Speaking...",
   noSpeech: "No speech detected. Try speaking louder.",

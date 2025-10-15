@@ -12,6 +12,7 @@ export default {
   ai: "AI",
   tool: "工具",
   callingTools: "调用工具:",
+  callingToolGeneric: "正在调用工具...",
   enterMessage: "输入消息...",
   speaking: "请说话...",
   noSpeech: "未检测到语音。请大声说话。",

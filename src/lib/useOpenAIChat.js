@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import openaiLocales from './locales/openai';
 
 // Generate unique IDs for tool calls
@@ -42,13 +42,20 @@ function parseAssistantResponse(assistantMsg) {
         displayContent = displayContent.replace(thinkMatch[0], '').trim();
       }
 
-      // gpt-oss control tags format: <|constrain|>func=functions.name ... <|message|>{json}
-      const ossFuncMatch = displayContent.match(/<\|constrain\|>\s*func=([\w.\-]+)/i);
+      // gpt-oss control tags formats:
+      // 1) <|constrain|>func=functions.name ... <|message|>{json}
+      // 2) <|constrain|>functions.name ... <|message|>{json}
+      let funcNameFromTag = null;
+      const ossFuncMatchLegacy = displayContent.match(/<\|constrain\|>\s*func=([\w.\-]+)/i);
+      const ossFuncMatchNoAttr = displayContent.match(/<\|constrain\|>\s*functions\.([\w.\-]+)/i);
+      if (ossFuncMatchLegacy) {
+        funcNameFromTag = (ossFuncMatchLegacy[1] || '').replace(/^functions\./, '');
+      } else if (ossFuncMatchNoAttr) {
+        funcNameFromTag = (ossFuncMatchNoAttr[1] || '').replace(/^functions\./, '');
+      }
       const ossMsgIndex = displayContent.lastIndexOf('<|message|>');
-      if (ossFuncMatch && ossMsgIndex !== -1) {
+      if (funcNameFromTag && ossMsgIndex !== -1) {
         try {
-          const rawFunc = ossFuncMatch[1] || '';
-          const funcName = rawFunc.replace(/^functions\./, '');
           const jsonText = displayContent.slice(ossMsgIndex + '<|message|>'.length).trim();
           let funcArgs = {};
           if (jsonText) {
@@ -59,10 +66,14 @@ function parseAssistantResponse(assistantMsg) {
               funcArgs = jsonText;
             }
           }
+          // Normalize shape like { name, arguments } to arguments only
+          if (funcArgs && typeof funcArgs === 'object' && 'arguments' in funcArgs && Object.keys(funcArgs).length <= 2) {
+            funcArgs = funcArgs.arguments;
+          }
 
           toolCallsJson = [{
             id: generateToolCallId(),
-            name: funcName,
+            name: funcNameFromTag,
             arguments: funcArgs
           }];
 
@@ -78,25 +89,57 @@ function parseAssistantResponse(assistantMsg) {
         }
       }
 
-      // Legacy bracketed JSON format fallback
-      const toolCallMatch = displayContent.match(/\[([\s\S]*?)\]/i);
-      if (toolCallMatch) {
+      // Try to parse entire content as JSON array of tool calls
+      if (!toolCallsJson) {
         try {
-          const parsedJson = JSON.parse(toolCallMatch[1]);
-
-          // Validate format
-          if (typeof parsedJson !== 'object' || parsedJson === null) {
-            throw new Error("Parsed JSON is not an object");
+          const trimmedContent = displayContent.trim();
+          if (trimmedContent.startsWith('[') && trimmedContent.endsWith(']')) {
+            const parsedJson = JSON.parse(trimmedContent);
+            
+            // Validate format - should be array of tool call objects
+            if (Array.isArray(parsedJson) && parsedJson.length > 0) {
+              const isValidToolCalls = parsedJson.every(tc => 
+                tc && typeof tc === 'object' && 
+                typeof tc.name === 'string' && 
+                tc.arguments !== undefined
+              );
+              
+              if (isValidToolCalls) {
+                toolCallsJson = parsedJson.map(tc => ({
+                  id: generateToolCallId(),
+                  name: tc.name,
+                  arguments: tc.arguments
+                }));
+                displayContent = ''; // Clear content since it's all tool calls
+              }
+            }
           }
-
-          toolCallsJson = (Array.isArray(parsedJson) ? parsedJson : [parsedJson]).map(tc => ({
-            id: generateToolCallId(),
-            name: tc.name,
-            arguments: tc.arguments
-          }));
-          displayContent = displayContent.replace(toolCallMatch[0], '').trim();
         } catch (e) {
-          console.error("JSON parse error:", e, "Content:", toolCallMatch[1]);
+          // Not valid JSON, continue to bracketed format fallback
+        }
+      }
+
+      // Legacy bracketed JSON format fallback
+      if (!toolCallsJson) {
+        const toolCallMatch = displayContent.match(/\[([\s\S]*?)\]/i);
+        if (toolCallMatch) {
+          try {
+            const parsedJson = JSON.parse(toolCallMatch[1]);
+
+            // Validate format
+            if (typeof parsedJson !== 'object' || parsedJson === null) {
+              throw new Error("Parsed JSON is not an object");
+            }
+
+            toolCallsJson = (Array.isArray(parsedJson) ? parsedJson : [parsedJson]).map(tc => ({
+              id: generateToolCallId(),
+              name: tc.name,
+              arguments: tc.arguments
+            }));
+            displayContent = displayContent.replace(toolCallMatch[0], '').trim();
+          } catch (e) {
+            console.error("JSON parse error:", e, "Content:", toolCallMatch[1]);
+          }
         }
       }
     } else if (assistantMsg.content) {
@@ -117,7 +160,7 @@ function parseAssistantResponse(assistantMsg) {
   };
 }
 
-export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema, locale = 'en') => {
+export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api') => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -125,17 +168,39 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
   // Get current localization
   const currentLocale = openaiLocales[locale] || openaiLocales.ru;
 
-  // System prompt with localization
-  const systemPrompt = currentLocale.systemPrompt.replace(
-    '{toolsList}',
-    toolsSchema.map(t => `• ${t.function.name}: ${t.function.description}`).join('\n')
-  );
+  // System prompt with localization (recomputed when tools or locale/mode change)
+  // toolsMode: 'api' = tools passed via API parameter only (standard)
+  // toolsMode: 'prompt' = tools passed via API parameter AND described in system prompt (legacy)
+  const systemPrompt = useMemo(() => {
+    if (toolsMode === 'prompt') {
+      const toolsList = (actualToolsSchema || [])
+        .map(t => `• ${t.function.name}: ${t.function.description}`)
+        .join('\n');
+      return (currentLocale.systemPromptWithTools || currentLocale.systemPrompt)
+        .replace('{toolsList}', toolsList);
+    }
+    return currentLocale.systemPrompt;
+  }, [currentLocale, toolsMode, actualToolsSchema]);
+
 
   const conversationHistoryRef = useRef([{ role: "system", content: systemPrompt }]);
+
+  // Keep the first system message in sync when the computed systemPrompt changes
+  useEffect(() => {
+    if (
+      Array.isArray(conversationHistoryRef.current) &&
+      conversationHistoryRef.current.length > 0 &&
+      conversationHistoryRef.current[0] &&
+      conversationHistoryRef.current[0].role === 'system'
+    ) {
+      conversationHistoryRef.current[0] = { role: 'system', content: systemPrompt };
+    }
+  }, [systemPrompt]);
   const isProcessingRef = useRef(false);
+  const usedFollowUpRef = useRef(false);
 
   // Use provided tools
-  const availableTools = new Set((toolsSchema || []).map(t => t.function.name));
+  const availableTools = new Set((actualToolsSchema || []).map(t => t.function.name));
 
   const clearChat = useCallback(() => {
     setMessages([]);
@@ -163,6 +228,11 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
             content: JSON.stringify({ error: currentLocale.invalidArgumentsFormat.replace('{errorMessage}', e.message) })
           };
         }
+      }
+
+      // Normalize shape like { name, arguments } -> arguments
+      if (funcArgs && typeof funcArgs === 'object' && 'arguments' in funcArgs && Object.keys(funcArgs).length <= 2) {
+        funcArgs = funcArgs.arguments;
       }
 
       // Check tool availability
@@ -213,21 +283,26 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
     }
 
     return toolResponses;
-  }, [mcpClient, toolsSchema, currentLocale]);
+  }, [mcpClient, actualToolsSchema, currentLocale]);
 
-  const callOpenAI = useCallback(async (history) => {
+  const callOpenAI = useCallback(async (history, options = {}) => {
     // Use provided parameters or defaults
     const actualModelName = modelName || 'gpt-4o-mini';
     const actualBaseUrl = baseUrl || 'http://127.0.0.1:1234/v1';
     const actualApiKey = apiKey;
-    const actualToolsSchema = toolsSchema || [];
+    const toolsSchema = options.toolsOverride !== undefined ? options.toolsOverride : (actualToolsSchema || []);
+    const actualToolChoice = options.toolChoiceOverride !== undefined ? options.toolChoiceOverride : 'auto';
 
     const requestBody = {
       model: actualModelName,
-      messages: history,
-      tools: actualToolsSchema,
-      tool_choice: "auto"
+      messages: history
     };
+
+    // Always include tools in API request when available
+    if (toolsSchema.length > 0) {
+      requestBody.tools = toolsSchema;
+      requestBody.tool_choice = actualToolChoice;
+    }
 
     const headers = {
       'Content-Type': 'application/json'
@@ -274,7 +349,58 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
     }
 
     return await response.json();
-  }, [modelName, baseUrl, apiKey, toolsSchema, currentLocale]);
+  }, [modelName, baseUrl, apiKey, actualToolsSchema, currentLocale, toolsMode]);
+
+  // Optional validator: checks assistant display content and can warn or request a revision
+  const validateAssistantContent = useCallback(async (assistantText) => {
+    try {
+      if (!validationOptions || !validationOptions.enabled) return { valid: true };
+      const mode = validationOptions.mode === 'revise' ? 'revise' : 'warn';
+      const customPrompt = validationOptions.validatorPrompt;
+      const sysPrompt = customPrompt || (
+        locale === 'ru'
+          ? 'Ты валидатор ответа. Проверь последний ответ ассистента на пустоту/мусор и очевидные ошибки разметки JSON. Ответь строго в JSON: {"valid": true|false, "note": "кратко", "revision": "если не валидно – исправленный текст или пусто"}. Без пояснений.'
+          : (locale === 'zh'
+            ? '你是回答验证器。检查助手上个回复是否为空/无意义以及JSON标记是否明显错误。只用JSON回复：{"valid": true|false, "note": "简要", "revision": "若无效给出修正文本或留空"}。不要解释。'
+            : 'You are an answer validator. Check the last assistant reply for emptiness/noise and obvious JSON markup issues. Reply strictly as JSON: {"valid": true|false, "note": "short", "revision": "if invalid – corrected text or empty"}. No explanations.'));
+
+      const validationHistory = [
+        { role: 'system', content: sysPrompt },
+        { role: 'user', content: `Assistant reply to validate:\n\n\n${assistantText}` }
+      ];
+
+      const res = await callOpenAI(validationHistory, { toolsOverride: [], toolChoiceOverride: 'none' });
+      const msg = res.choices?.[0]?.message;
+      const raw = msg?.content || '';
+      let verdict;
+      try {
+        verdict = JSON.parse(raw);
+      } catch (_) {
+        // If the model did not return JSON, treat as valid to avoid accidental loops
+        return { valid: true };
+      }
+      if (verdict && verdict.valid === false) {
+        if (mode === 'warn') {
+          const note = typeof verdict.note === 'string' ? verdict.note : 'Validation failed.';
+          const warnText = locale === 'ru' ? `⚠️ Проверка ответа: ${note}` : (locale === 'zh' ? `⚠️ 校验提示：${note}` : `⚠️ Validation: ${note}`);
+          setMessages(prev => [...prev, { role: 'assistant', content: warnText }]);
+          conversationHistoryRef.current.push({ role: 'assistant', content: warnText });
+          return { valid: false, warned: true };
+        }
+        // revise mode: append a revised assistant response when provided
+        if (typeof verdict.revision === 'string' && verdict.revision.trim()) {
+          const revised = verdict.revision.trim();
+          setMessages(prev => [...prev, { role: 'assistant', content: revised }]);
+          conversationHistoryRef.current.push({ role: 'assistant', content: revised });
+          return { valid: false, revised: true };
+        }
+        return { valid: false };
+      }
+      return { valid: true };
+    } catch (_) {
+      return { valid: true };
+    }
+  }, [validationOptions, locale, callOpenAI]);
 
   const sendMessage = useCallback(async (userMessage) => {
     // Check if tools are loaded
@@ -296,9 +422,15 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
       const userMsgObj = { role: "user", content: userMessage };
       setMessages(prev => [...prev, userMsgObj]);
       conversationHistoryRef.current.push(userMsgObj);
+      usedFollowUpRef.current = false;
 
       let loopCount = 0;
       const MAX_LOOPS = 5;
+
+      // One-shot retry for control-tag responses
+      const usedControlTagRetryRef = { current: false };
+      // One-shot retry for invalid empty-key JSON like {"": {}}
+      const usedEmptyJsonRetryRef = { current: false };
 
       while (loopCount < MAX_LOOPS) {
         loopCount++;
@@ -306,6 +438,58 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
         // Call OpenAI API
         const response = await callOpenAI(conversationHistoryRef.current);
         const assistantMsg = response.choices[0].message;
+
+        // Detect invalid content: { "": {} }
+        let isEmptyKeyEmptyObject = false;
+        try {
+          const raw = typeof assistantMsg.content === 'string' ? assistantMsg.content.trim() : '';
+          if (raw.startsWith('{') && raw.endsWith('}')) {
+            const obj = JSON.parse(raw);
+            if (obj && typeof obj === 'object') {
+              const keys = Object.keys(obj);
+              if (keys.length === 1 && keys[0] === '' && obj[''] && typeof obj[''] === 'object' && Object.keys(obj['']).length === 0) {
+                isEmptyKeyEmptyObject = true;
+              }
+            }
+          }
+        } catch (_) {}
+
+        if (isEmptyKeyEmptyObject && !usedEmptyJsonRetryRef.current) {
+          usedEmptyJsonRetryRef.current = true;
+          const retryInstruction = locale === 'ru'
+            ? 'Предыдущий ответ содержал неверный JSON вида {"": {}}. Сформируй корректный ответ: либо понятный текст для пользователя, либо корректные tool_calls.'
+            : (locale === 'zh'
+              ? '上一次回复包含无效的 JSON（{"": {}}）。请生成正确的回复：要么是用户可读的文本，要么是标准的 tool_calls。'
+              : 'Previous reply contained invalid JSON of the form {"": {}}. Generate a correct reply: either a user-facing message or proper tool_calls.');
+          const retryMsg = { role: 'system', content: retryInstruction };
+          conversationHistoryRef.current.push(retryMsg);
+          const retryRes = await callOpenAI(conversationHistoryRef.current);
+          const retryAssistant = retryRes.choices?.[0]?.message || { role: 'assistant', content: '' };
+          conversationHistoryRef.current.push(retryAssistant);
+          const retryParsed = parseAssistantResponse(retryAssistant);
+          // If we obtained tool calls, process them and continue loop
+          if (retryParsed.toolCallsJson?.length) {
+            const toolResponses = await handleToolCalls(retryParsed.toolCallsJson);
+            if (toolResponses.length !== retryParsed.toolCallsJson.length) {
+              const forcedResponses = retryParsed.toolCallsJson.map((call, index) => {
+                if (index < toolResponses.length) return toolResponses[index];
+                return { role: 'tool', tool_call_id: call.id, content: JSON.stringify({ error: currentLocale.toolResponseError }) };
+              });
+              conversationHistoryRef.current.push(...forcedResponses);
+            } else {
+              conversationHistoryRef.current.push(...toolResponses);
+            }
+            continue;
+          }
+          // Otherwise, if we got displayable content, show it and validate, then break
+          if ((retryParsed.displayContent || '').trim()) {
+            setMessages(prev => [...prev, { role: 'assistant', content: retryParsed.displayContent }]);
+            await validateAssistantContent(retryParsed.displayContent);
+            break;
+          }
+          // If still nothing useful, continue loop to try again (bounded by MAX_LOOPS)
+          continue;
+        }
 
         // Parse response
         const parsed = parseAssistantResponse(assistantMsg);
@@ -324,13 +508,12 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
             role: "assistant",
             content: parsed.displayContent
           }]);
+          // Optionally validate the assistant display content
+          await validateAssistantContent(parsed.displayContent);
         } else if (parsed.toolCallsJson?.length) {
           // Show that assistant is calling tools (UI renders list from tool_calls)
           const uiToolCalls = parsed.toolCallsJson.map(tc => ({
-            function: {
-              name: tc.name,
-              arguments: typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments)
-            }
+            function: { name: tc.name }
           }));
           setMessages(prev => [...prev, {
             role: "assistant",
@@ -372,6 +555,64 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
             conversationHistoryRef.current.push(...toolResponses);
           }
         } else {
+          // If model returned gpt-oss control tags without parsed tool calls, request conversion once
+          const contentStr = typeof assistantMsg.content === 'string' ? assistantMsg.content : '';
+          const hasControlTags = /<\|constrain\|>|<\|message\|>|<\|channel\|>/i.test(contentStr);
+          if (hasControlTags && !usedControlTagRetryRef.current) {
+            usedControlTagRetryRef.current = true;
+            const convertInstruction = locale === 'ru'
+              ? 'Преобразуй свой предыдущий ответ в корректный формат tool_calls OpenAI без <|...|> тегов. Верни только tool_calls.'
+              : (locale === 'zh'
+                ? '将你之前的回复转换为没有 <|...|> 标签的标准 OpenAI tool_calls 格式。只返回 tool_calls。'
+                : 'Convert your previous reply into proper OpenAI tool_calls format without <|...|> tags. Return tool_calls only.');
+            const convertMsg = { role: 'system', content: convertInstruction };
+            conversationHistoryRef.current.push(convertMsg);
+            const convertRes = await callOpenAI(conversationHistoryRef.current);
+            const convertAssistant = convertRes.choices?.[0]?.message || { role: 'assistant', content: '' };
+            conversationHistoryRef.current.push(convertAssistant);
+            const convParsed = parseAssistantResponse(convertAssistant);
+            if (convParsed.toolCallsJson?.length) {
+              // Execute tools obtained from conversion
+              const toolResponses = await handleToolCalls(convParsed.toolCallsJson);
+              if (toolResponses.length !== convParsed.toolCallsJson.length) {
+                const forcedResponses = convParsed.toolCallsJson.map((call, index) => {
+                  if (index < toolResponses.length) {
+                    return toolResponses[index];
+                  }
+                  return {
+                    role: 'tool',
+                    tool_call_id: call.id,
+                    content: JSON.stringify({ error: currentLocale.toolResponseError })
+                  };
+                });
+                conversationHistoryRef.current.push(...forcedResponses);
+              } else {
+                conversationHistoryRef.current.push(...toolResponses);
+              }
+              // Continue loop to let model use tool results
+              continue;
+            }
+          }
+          // No tool calls. If there is no displayable content either, ask model to formulate a user-facing question once.
+          if (!parsed.displayContent || !parsed.displayContent.trim()) {
+            if (!usedFollowUpRef.current) {
+              usedFollowUpRef.current = true;
+              const followupInstruction = locale === 'ru'
+                ? 'Сформулируй краткий, конкретный вопрос пользователю о недостающих данных/доступах, необходимых для продолжения. Без тегов <think> и без кода. Одна короткая фраза.'
+                : 'Write a brief, specific question to the user asking for the exact missing info or access required to proceed. No <think> tags, no code. One concise sentence.';
+
+              const followupMsg = { role: 'system', content: followupInstruction };
+              conversationHistoryRef.current.push(followupMsg);
+              const followupRes = await callOpenAI(conversationHistoryRef.current);
+              const followupAssistant = followupRes.choices?.[0]?.message || { role: 'assistant', content: '' };
+              conversationHistoryRef.current.push(followupAssistant);
+              const followParsed = parseAssistantResponse(followupAssistant);
+              const followText = (followParsed.displayContent || '').trim();
+              if (followText) {
+                setMessages(prev => [...prev, { role: 'assistant', content: followText }]);
+              }
+            }
+          }
           break;
         }
       }
@@ -394,7 +635,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, toolsSchema
       setIsLoading(false);
       isProcessingRef.current = false;
     }
-  }, [isLoading, callOpenAI, handleToolCalls, toolsSchema, currentLocale]);
+  }, [isLoading, callOpenAI, handleToolCalls, actualToolsSchema, currentLocale]);
 
   return {
     messages,

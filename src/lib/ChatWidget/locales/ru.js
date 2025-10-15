@@ -12,6 +12,7 @@ export default {
   ai: "AI",
   tool: "Инструмент",
   callingTools: "Вызывает инструменты:",
+  callingToolGeneric: "Выполняю инструмент...",
   enterMessage: "Введите сообщение...",
   speaking: "Говорите...",
   noSpeech: "Речь не обнаружена. Попробуйте говорить громче.",

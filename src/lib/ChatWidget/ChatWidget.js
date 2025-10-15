@@ -1,4 +1,4 @@
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useRef, useState, useMemo} from 'react';
 import { useMCPClient } from '../useMCPClient';
 import {useOpenAIChat} from '../useOpenAIChat';
 import defaultLocales from './locales';
@@ -39,7 +39,17 @@ const ChatWidget = ({
                       apiKey = null,
                       toolsSchema = [],
                       locale = 'en',
-                  customLocales = {}
+                  customLocales = {},
+                  mcpServers = {},
+                  envVars = {},
+                  allowedTools = null,
+                  blockedTools = [],
+                  // Backward compatibility
+                  externalServers = null,
+                  // New: opt-in assistant response validation
+                  validationOptions = null,
+                  // Tools mode: 'api' (standard, via API parameter) or 'prompt' (legacy, in system prompt)
+                  toolsMode = 'api'
                     }) => {
   const [inputValue, setInputValue] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -66,7 +76,35 @@ const ChatWidget = ({
 
   const currentLocale = mergedLocales[locale] || mergedLocales.en;
 
-  const { client, tools, status } = useMCPClient();
+  // Backward compatibility: convert externalServers array to mcpServers object
+  const finalMcpServers = useMemo(() => {
+    if (externalServers && Array.isArray(externalServers)) {
+      console.warn('[ChatWidget] externalServers as array is deprecated. Use mcpServers object instead.');
+      const converted = {};
+      externalServers.forEach(server => {
+        if (server.id) {
+          converted[server.id] = {
+            type: server.transport === 'ws' ? 'ws' : 'sse',
+            url: server.url,
+            headers: server.headers,
+            protocols: server.protocols,
+            withCredentials: server.withCredentials,
+            postUrl: server.postUrl,
+            timeoutMs: server.timeoutMs
+          };
+        }
+      });
+      return converted;
+    }
+    return mcpServers;
+  }, [externalServers, mcpServers]);
+
+  const { client, tools, status } = useMCPClient({ 
+    mcpServers: finalMcpServers,
+    envVars,
+    allowedTools,
+    blockedTools
+  });
 
   const actualToolsSchema = toolsSchema.length > 0
   ? toolsSchema
@@ -91,8 +129,25 @@ const ChatWidget = ({
     baseUrl,
     apiKey,
     actualToolsSchema,
-    locale
+    locale,
+    validationOptions,
+    toolsMode
   );
+
+  // Determine if the assistant is currently calling a tool
+  const isCallingTool = useMemo(() => {
+    if (!Array.isArray(messages) || messages.length === 0) return false;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === 'assistant') {
+        return !!(m.tool_calls && m.tool_calls.length > 0) && !!isLoading;
+      }
+      if (m.role === 'user') {
+        break; // stop at last user message
+      }
+    }
+    return false;
+  }, [messages, isLoading]);
 
   useEffect(() => {
     // Keep refs in sync with latest values without re-initializing recognition
@@ -399,6 +454,10 @@ const ChatWidget = ({
       locale,
       currentLocale,
       customLocales,
+      mcpServers: finalMcpServers,
+      envVars,
+      allowedTools,
+      blockedTools,
       inputRef,
       messagesEndRef,
       showTemporaryTooltip,
@@ -479,9 +538,11 @@ const ChatWidget = ({
 
               {messages.map((msg, index) => {
                 const shouldDisplayMessage = () => {
-                  if (msg.role === 'tool') return true;
+                  // Hide tool role messages entirely
+                  if (msg.role === 'tool') return false;
 
-                  if (msg.tool_calls && msg.tool_calls.length > 0) return true;
+                  // Suppress listing of tool calls as separate message; status bubble will reflect state
+                  if (msg.tool_calls && msg.tool_calls.length > 0) return false;
 
                   if (msg.role === 'assistant') {
                     if (msg.content && !isDisplayContentEmpty(msg.content)) {
@@ -498,7 +559,14 @@ const ChatWidget = ({
                 }
 
                 let displayContent = msg.content;
-                if (msg.role === 'assistant' && msg.content) {
+                if (msg.role === 'assistant') {
+                  // During tool calls, suppress assistant content; status bubble shows action
+                  if (msg.tool_calls && msg.tool_calls.length > 0) {
+                    displayContent = '';
+                  } else if (msg.content) {
+                    displayContent = cleanAssistantContent(msg.content);
+                  }
+                } else if (msg.content) {
                   displayContent = cleanAssistantContent(msg.content);
                 }
 
@@ -513,24 +581,17 @@ const ChatWidget = ({
                       <span dangerouslySetInnerHTML={{
                         __html: displayContent.replace(/\n/g, '<br />')
                       }}/>
-                    ) : (msg.tool_calls && msg.tool_calls.length > 0) ? (
-                      <div>
-                        <em>{currentLocale.callingTools}</em>
-                        <ul>
-                          {msg.tool_calls.map((tc, i) => (
-                            <li key={i}>
-                              {tc.function.name}({tc.function.arguments})
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
                     ) : (
-                      <span>{JSON.stringify(msg)}</span>
+                      <span></span>
                     )}
                   </div>
                 );
               })}
-              {isLoading && <div className="message message-info"><em>{currentLocale.thinking}</em></div>}
+              {isLoading && (
+                <div className="message message-info">
+                  <em>{isCallingTool ? currentLocale.callingToolGeneric : currentLocale.thinking}</em>
+                </div>
+              )}
               {error && <div className="message message-error"><strong>{currentLocale.error}:</strong> {error}</div>}
               <div ref={messagesEndRef}/>
             </div>

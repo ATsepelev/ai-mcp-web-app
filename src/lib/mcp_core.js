@@ -283,3 +283,458 @@ const MCP = {
 
 export default MCP;
 export { MCP, MCPServer, MCPClient };
+
+// --- External MCP Clients (WebSocket and SSE) ---
+
+/**
+ * Minimal transport-agnostic JSON-RPC client for external MCP servers over WebSocket or SSE.
+ * Both clients implement: initialize(), loadTools(), callTool(name, args)
+ */
+
+class MCPExternalBaseClient {
+  constructor(options = {}) {
+    this.initialized = false;
+    this.tools = [];
+    this.pendingRequests = new Map();
+    this.requestIdCounter = 1;
+    this.sessionId = options.sessionId || null;
+    this.protocolVersion = options.protocolVersion || '2024-11-05';
+    this.options = options || {};
+    this.clientInfo = options.clientInfo || {
+      name: 'smart-web-app',
+      title: 'AI MCP Web App',
+      version: '0.0.0'
+    };
+  }
+
+  nextId() {
+    return this.requestIdCounter++;
+  }
+
+  buildRequest(method, params) {
+    const id = this.nextId();
+    // Only include params if caller provided them
+    if (params !== undefined) {
+      const finalParams = typeof params === 'object' ? { ...params } : params;
+      if (finalParams && typeof finalParams === 'object') {
+        // Inject _meta.sessionId if params is an object
+        const meta = (finalParams._meta && typeof finalParams._meta === 'object') ? { ...finalParams._meta } : {};
+        // Do NOT send session for initialize requests
+        const isInit = method === 'initialize' || method === 'mcp.initialize';
+        if (!isInit && !meta.sessionId && this.sessionId) {
+          meta.sessionId = this.sessionId;
+        }
+        finalParams._meta = meta;
+      }
+      return { jsonrpc: "2.0", id, method, params: finalParams };
+    }
+    return { jsonrpc: "2.0", id, method };
+  }
+
+  buildInitializeParams() {
+    const params = {
+      protocolVersion: this.protocolVersion,
+      capabilities: {
+        sampling: {},
+        elicitation: {}
+        // roots capability is optional for this client
+      },
+      clientInfo: this.clientInfo
+    };
+    return params;
+  }
+
+  // Override in transport subclasses
+  // Sends a JSON-RPC notification (no id) without awaiting a response
+  // payload MUST include { jsonrpc: "2.0", method, params? }
+  // eslint-disable-next-line no-unused-vars
+  async sendNotification(payload) {
+    throw new Error('sendNotification not implemented');
+  }
+
+  async initialize() {
+    if (this.initialized) return;
+    // Try spec method first, fallback to legacy
+    let res;
+    try {
+      res = await this.sendRequest(this.buildRequest('initialize', this.buildInitializeParams()));
+    } catch (e) {
+      // fallback to legacy
+      res = await this.sendRequest(this.buildRequest('mcp.initialize', { version: MCP_PROTOCOL_VERSION, capabilities: ["tools"] }));
+    }
+    if (res && typeof res === 'object' && typeof res.protocolVersion === 'string') {
+      this.protocolVersion = res.protocolVersion;
+    }
+    this.initialized = true;
+    // Send notifications/initialized as per lifecycle and require 202, then list tools
+    try {
+      const status = await this.sendNotification({ jsonrpc: '2.0', method: 'notifications/initialized' });
+      if (status !== 202) {
+        throw new Error(`initialized notification not accepted: HTTP ${status || 'unknown'}`);
+      }
+      await this.loadTools();
+    } catch (_) {}
+    return res;
+  }
+
+  async loadTools() {
+    if (!this.initialized) await this.initialize();
+    // Try spec list first
+    let result;
+    try {
+      result = await this.sendRequest(this.buildRequest('tools/list'));
+    } catch (e) {
+      // fallback legacy
+      result = await this.sendRequest(this.buildRequest('mcp.tools.list'));
+    }
+    // Normalize result: spec -> { tools: [...] }, legacy -> [...]
+    const tools = Array.isArray(result) ? result : (result && Array.isArray(result.tools) ? result.tools : []);
+    this.tools = tools;
+    return this.tools;
+  }
+
+  async callTool(name, args) {
+    if (!this.initialized) await this.initialize();
+    // Try spec call first, fallback to legacy
+    try {
+      const res = await this.sendRequest(this.buildRequest('tools/call', { name, arguments: args }));
+      return res;
+    } catch (e) {
+      return this.sendRequest(this.buildRequest('mcp.tools.call', { name, arguments: args }));
+    }
+  }
+}
+
+// Helper to append query param to URL
+// Query-string helpers removed; session identifiers are not sent via URL parameters.
+
+/**
+ * WebSocket client for external MCP servers.
+ * Note: In browsers, custom headers aren't supported for WebSocket. Use query params or subprotocols if needed.
+ */
+class MCPWebSocketClient extends MCPExternalBaseClient {
+  constructor(url, options = {}) {
+    super(options);
+    this.url = url;
+    this.options = options;
+    this.ws = null;
+    this.connecting = false;
+    this.backoffMs = 500;
+    this.maxBackoffMs = 8000;
+    this.queue = [];
+    this.sessionId = options.sessionId || null;
+    this._connect();
+  }
+
+  _connect() {
+    if (this.connecting || (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING))) {
+      return;
+    }
+    this.connecting = true;
+    try {
+      const protocols = this.options.protocols || undefined;
+      this.ws = new WebSocket(this.url, protocols);
+      this.ws.onopen = () => {
+        this.connecting = false;
+        this.backoffMs = 500;
+        // flush queue
+        while (this.queue.length) {
+          const msg = this.queue.shift();
+          try { this.ws.send(JSON.stringify(msg)); } catch (e) { /* no-op */ }
+        }
+      };
+      this.ws.onmessage = (event) => {
+        try {
+          const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          if (data && data.id !== undefined && data.jsonrpc === '2.0') {
+            const pending = this.pendingRequests.get(data.id);
+            if (pending) {
+              this.pendingRequests.delete(data.id);
+              if (data.error) {
+                const err = new Error(`[${data.error.code}] ${data.error.message}`);
+                err.data = data.error.data;
+                pending.reject(err);
+              } else {
+                pending.resolve(data.result);
+              }
+            }
+          }
+        } catch (e) {
+          // ignore malformed
+        }
+      };
+      this.ws.onclose = () => {
+        this.connecting = false;
+        setTimeout(() => this._connect(), this.backoffMs);
+        this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+      };
+      this.ws.onerror = () => {
+        try { this.ws.close(); } catch (e) { /* no-op */ }
+      };
+    } catch (e) {
+      this.connecting = false;
+      setTimeout(() => this._connect(), this.backoffMs);
+      this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+    }
+  }
+
+  sendRequest(payload) {
+    return new Promise((resolve, reject) => {
+      this.pendingRequests.set(payload.id, { resolve, reject });
+      const sendNow = () => {
+        try {
+          this.ws.send(JSON.stringify(payload));
+        } catch (e) {
+          reject(e);
+        }
+      };
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        sendNow();
+      } else {
+        this.queue.push(payload);
+        this._connect();
+      }
+    });
+  }
+
+  async sendNotification(notification) {
+    // Ensure has no id
+    const payload = { jsonrpc: '2.0', method: notification.method };
+    if (notification.params !== undefined) payload.params = notification.params;
+    const sendNow = () => {
+      try { this.ws.send(JSON.stringify(payload)); } catch (e) { /* ignore */ }
+    };
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      sendNow();
+    } else {
+      this.queue.push(payload);
+      this._connect();
+    }
+  }
+}
+
+/**
+ * SSE client for external MCP servers.
+ * Uses EventSource for incoming events, and POST fetch for requests.
+ * Assumes server emits JSON-RPC responses on SSE 'message' events with matching id.
+ */
+class MCPSseClient extends MCPExternalBaseClient {
+  constructor(url, options = {}) {
+    super(options);
+    this.url = url; // SSE endpoint for events
+    this.options = options;
+    this.eventSource = null;
+    this.backoffMs = 1000;
+    this.maxBackoffMs = 10000;
+    this.sessionId = options.sessionId || null;
+    // Optional pre-initialization POST for servers requiring session setup (POST-only flow)
+    if (options.initUrl) {
+      const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
+        ...(options.headers || {})
+      };
+      // Do not include any session headers or _meta before initialization
+      const body = { jsonrpc: '2.0', id: this.nextId(), method: 'initialize', params: {} };
+      fetch(options.initUrl, { method: 'POST', headers, body: JSON.stringify(body) }).catch(() => {});
+    }
+    // By default, do NOT open GET EventSource stream. Allow only if explicitly enabled.
+    if (options.listenViaGet === true) {
+      this._openEventStream();
+    }
+  }
+
+  async initialize() {
+    if (this.initialized) return;
+    // POST-first initialization via base class
+    try {
+      return await super.initialize();
+    } catch (_) {
+      // On failure, attempt a GET probe, then retry POST initialize
+      try {
+        const initGetUrl = this.options.initUrl || this.url;
+        await fetch(initGetUrl, {
+          method: 'GET',
+          headers: { 'Accept': 'text/event-stream, application/json' }
+        });
+      } catch (_) { /* ignore GET errors */ }
+      return await super.initialize();
+    }
+  }
+
+  _openEventStream() {
+    try {
+      // Native EventSource doesn't support headers. For auth, use query params or a polyfill if needed.
+      this.eventSource = new EventSource(this.url, { withCredentials: !!this.options.withCredentials });
+      this.eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && data.id !== undefined && data.jsonrpc === '2.0') {
+            const pending = this.pendingRequests.get(data.id);
+            if (pending) {
+              this.pendingRequests.delete(data.id);
+              if (data.error) {
+                const err = new Error(`[${data.error.code}] ${data.error.message}`);
+                err.data = data.error.data;
+                pending.reject(err);
+              } else {
+                pending.resolve(data.result);
+              }
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
+      this.eventSource.onerror = () => {
+        try { this.eventSource.close(); } catch (e) { /* no-op */ }
+        setTimeout(() => this._openEventStream(), this.backoffMs);
+        this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+      };
+    } catch (e) {
+      setTimeout(() => this._openEventStream(), this.backoffMs);
+      this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+    }
+  }
+
+  async sendRequest(payload) {
+    // POST to the provided postUrl if set, otherwise use the original url as-is (no automatic replacement)
+    const postUrl = this.options.postUrl || this.url;
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+      'MCP-Protocol-Version': this.protocolVersion,
+      ...(this.options.headers || {})
+    };
+    // Do NOT send session header on initialize; set after server assigns it
+    const isInit = payload && (payload.method === 'initialize' || payload.method === 'mcp.initialize');
+    if (this.sessionId && !isInit) {
+      if (!headers['Mcp-Session-Id']) headers['Mcp-Session-Id'] = this.sessionId;
+      if (!headers['X-Session-Id']) headers['X-Session-Id'] = this.sessionId; // compatibility
+    }
+    this.pendingRequests.set(payload.id, {});
+    try {
+      const res = await fetch(postUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
+      });
+      // Capture session id from response if present
+      try {
+        const sid = res.headers && (res.headers.get('Mcp-Session-Id') || res.headers.get('mcp-session-id'));
+        if (sid) this.sessionId = sid;
+      } catch (_) {}
+      // Some servers may respond immediately with JSON-RPC result
+      if (res && res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const json = await res.json();
+          if (json && json.id === payload.id) {
+            const pending = this.pendingRequests.get(payload.id);
+            if (pending) this.pendingRequests.delete(payload.id);
+            if (json.error) {
+              const err = new Error(`[${json.error.code}] ${json.error.message}`);
+              err.data = json.error.data;
+              return Promise.reject(err);
+            }
+            return json.result;
+          }
+        }
+        if (contentType.includes('text/event-stream') && res.body) {
+          // Parse SSE from the POST response body and resolve when matching id arrives
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let eventData = '';
+          const processLines = () => {
+            let idx;
+            while ((idx = buffer.indexOf('\n')) !== -1) {
+              const line = buffer.slice(0, idx).replace(/\r$/, '');
+              buffer = buffer.slice(idx + 1);
+              if (line.startsWith('data:')) {
+                eventData += line.slice(5).trimStart() + '\n';
+              } else if (line === '') {
+                const dataStr = eventData.trim();
+                eventData = '';
+                if (dataStr) {
+                  try {
+                    const msg = JSON.parse(dataStr);
+                    if (msg && msg.jsonrpc === '2.0' && msg.id === payload.id) {
+                      const pending = this.pendingRequests.get(payload.id);
+                      if (pending) this.pendingRequests.delete(payload.id);
+                      if (msg.error) {
+                        const err = new Error(`[${msg.error.code}] ${msg.error.message}`);
+                        err.data = msg.error.data;
+                        throw err;
+                      }
+                      throw { __resolve: msg.result };
+                    }
+                  } catch (e) {
+                    if (e && e.__resolve !== undefined) {
+                      throw e; // bubble to outer to resolve
+                    }
+                    // ignore non-matching or malformed events
+                  }
+                }
+              }
+            }
+          };
+          try {
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              processLines();
+            }
+          } catch (e) {
+            if (e && e.__resolve !== undefined) {
+              return e.__resolve;
+            }
+            throw e;
+          }
+          // If stream ended without matching response, timeout fallback
+        }
+      }
+      // Otherwise, await SSE resolution
+      return new Promise((resolve, reject) => {
+        this.pendingRequests.set(payload.id, { resolve, reject });
+        // Optional timeout to avoid hanging forever
+        const timeoutMs = this.options.timeoutMs || 30000;
+        setTimeout(() => {
+          const pending = this.pendingRequests.get(payload.id);
+          if (pending) {
+            this.pendingRequests.delete(payload.id);
+            reject(new Error('SSE request timeout'));
+          }
+        }, timeoutMs);
+      });
+    } catch (e) {
+      this.pendingRequests.delete(payload.id);
+      throw e;
+    }
+  }
+
+  async sendNotification(notification) {
+    const postUrl = this.options.postUrl || this.url;
+    const headers = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
+      'MCP-Protocol-Version': this.protocolVersion,
+      ...(this.options.headers || {})
+    };
+    // Always include session header if present (initialized must carry it)
+    if (this.sessionId) {
+      if (!headers['Mcp-Session-Id']) headers['Mcp-Session-Id'] = this.sessionId;
+      if (!headers['X-Session-Id']) headers['X-Session-Id'] = this.sessionId;
+    }
+    const payload = { jsonrpc: '2.0', method: notification.method };
+    if (notification.params !== undefined) payload.params = notification.params;
+    try {
+      const res = await fetch(postUrl, { method: 'POST', headers, body: JSON.stringify(payload) });
+      return res && typeof res.status === 'number' ? res.status : undefined;
+    } catch (_) { return undefined; }
+  }
+}
+
+export { MCPWebSocketClient, MCPSseClient };

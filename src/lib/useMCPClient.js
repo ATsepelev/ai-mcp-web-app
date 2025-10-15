@@ -1,27 +1,211 @@
-import { useState, useEffect } from 'react';
-import { MCP } from './mcp_core';
+import { useState, useEffect, useMemo } from 'react';
+import { MCP, MCPWebSocketClient, MCPSseClient } from './mcp_core';
 
-export const useMCPClient = () => {
+/**
+ * Hook to provide a merged MCP client over internal (in-page) and optional external servers.
+ * @param {Object} options
+ * @param {Object} options.mcpServers - Object with server configurations { "server-id": { type, url, headers, ... } }
+ * @param {Object} options.envVars - Environment variables for substitution in URLs and headers
+ * @param {Array<string>} options.allowedTools - Whitelist of allowed tools (takes priority)
+ * @param {Array<string>} options.blockedTools - Blacklist of blocked tools
+ * @param {Array<{id:string, transport?: 'ws'|'sse', url:string, headers?:Object, protocols?:string[], withCredentials?:boolean, postUrl?:string, timeoutMs?:number}>} options.externalServers - Deprecated: use mcpServers instead
+ */
+export const useMCPClient = (options = {}) => {
   const [client, setClient] = useState(null);
   const [tools, setTools] = useState([]);
-  const [status, setStatus] = useState('disconnected'); // disconnected, connecting, connected, error
+  const [status, setStatus] = useState('disconnected'); // disconnected, connecting, connected, partial_connected, error
+  const { mcpServers = {}, envVars = {}, allowedTools = null, blockedTools = [], externalServers = [] } = options;
+  const externalClients = useMemo(() => new Map(), []);
+
+  // Helper function to substitute environment variables
+  const substituteEnvVars = (value, envVars) => {
+    if (typeof value !== 'string') return value;
+    return value.replace(/\$\{([^}]+)\}/g, (match, expr) => {
+      // Support format ${VAR:-default}
+      const [varName, defaultValue] = expr.split(':-');
+      return envVars[varName.trim()] ?? defaultValue ?? match;
+    });
+  };
+
+  // Helper function to filter tools
+  const filterTools = (tools, allowedTools, blockedTools) => {
+    if (allowedTools && Array.isArray(allowedTools) && allowedTools.length > 0) {
+      // allowedTools has priority
+      return tools.filter(t => allowedTools.includes(t.qualifiedName));
+    }
+    if (blockedTools && Array.isArray(blockedTools) && blockedTools.length > 0) {
+      return tools.filter(t => !blockedTools.includes(t.qualifiedName));
+    }
+    return tools;
+  };
+
+  // Convert mcpServers object to array format for internal processing
+  const getServerArray = () => {
+    const servers = [];
+    
+    // Process mcpServers object
+    Object.entries(mcpServers).forEach(([serverId, config]) => {
+      if (config && typeof config === 'object') {
+        // Validate server ID format
+        if (!/^[a-zA-Z0-9-_]+$/.test(serverId)) {
+          console.warn(`[useMCPClient] Invalid server ID '${serverId}'. Use alphanumeric characters, dashes, and underscores only.`);
+        }
+        
+        // Validate transport type
+        if (config.type && !['ws', 'sse', 'http'].includes(config.type)) {
+          console.warn(`[useMCPClient] Invalid transport type '${config.type}' for server '${serverId}'. Use 'ws', 'sse', or 'http'.`);
+        }
+        
+        // Validate URL
+        if (!config.url || typeof config.url !== 'string') {
+          console.warn(`[useMCPClient] Missing or invalid URL for server '${serverId}'.`);
+        }
+        
+        const processedConfig = {
+          id: serverId,
+          transport: config.type === 'ws' ? 'ws' : 'sse',
+          url: substituteEnvVars(config.url, envVars),
+          headers: config.headers ? Object.fromEntries(
+            Object.entries(config.headers).map(([key, value]) => [
+              key, 
+              substituteEnvVars(value, envVars)
+            ])
+          ) : undefined,
+          protocols: config.protocols,
+          withCredentials: config.withCredentials,
+          postUrl: config.postUrl ? substituteEnvVars(config.postUrl, envVars) : undefined,
+          timeoutMs: config.timeoutMs
+        };
+        servers.push(processedConfig);
+      } else {
+        console.warn(`[useMCPClient] Invalid configuration for server '${serverId}'. Expected object.`);
+      }
+    });
+
+    // Add externalServers for backward compatibility
+    if (Array.isArray(externalServers) && externalServers.length > 0) {
+      console.warn('[useMCPClient] externalServers array is deprecated. Use mcpServers object instead.');
+      servers.push(...externalServers);
+    }
+
+    return servers;
+  };
 
   useEffect(() => {
     const initClient = async () => {
       try {
         setStatus('connecting');
-        const clientInstance = MCP.createClient();
+        const internalClient = MCP.createClient();
 
         // Initialize protocol
-        await clientInstance.initialize();
+        await internalClient.initialize();
 
         // Load tools
-        const tools = await clientInstance.loadTools();
-        setTools(tools);
-        setClient(clientInstance);
-        setStatus('connected');
+        const internalTools = await internalClient.loadTools();
 
-        console.log('[MCP] Client initialized with tools:', tools);
+        // Get processed server array
+        const serverArray = getServerArray();
+
+        // Initialize external clients in parallel
+        const externalInitPromises = serverArray.map(async (srv) => {
+          try {
+            const transport = (srv.transport || (srv.url.startsWith('wss:') ? 'ws' : 'sse'));
+            let ec;
+            if (transport === 'ws') {
+              ec = new MCPWebSocketClient(srv.url, { headers: srv.headers, protocols: srv.protocols });
+            } else {
+              ec = new MCPSseClient(srv.url, { headers: srv.headers, withCredentials: srv.withCredentials, postUrl: srv.postUrl, timeoutMs: srv.timeoutMs });
+            }
+            externalClients.set(srv.id, ec);
+            await ec.initialize();
+            const extTools = await ec.loadTools();
+            return { id: srv.id, client: ec, tools: extTools };
+          } catch (e) {
+            console.error(`[MCP] External server '${srv.id}' failed to init:`, e);
+            return { id: srv.id, client: null, tools: [], error: e };
+          }
+        });
+
+        const externalResults = await Promise.all(externalInitPromises);
+
+        // Merge tool catalogs; qualify external tool names as id.tool
+        const mergedTools = [];
+        // internal first (source: internal)
+        for (const t of internalTools) {
+          // Internal uses our legacy shape: {name, description, parameters}
+          mergedTools.push({ ...t, source: 'internal', qualifiedName: t.name, parameters: t.parameters });
+        }
+        for (const res of externalResults) {
+          if (res && res.tools && res.client) {
+            for (const t of res.tools) {
+              // Normalize spec fields to our consumer shape
+              const name = t.name || t.tool || t.id;
+              const description = t.description || t.title || '';
+              const parameters = t.parameters || t.inputSchema || {};
+              mergedTools.push({ name, description, parameters, source: res.id, qualifiedName: `${res.id}.${name}` });
+            }
+          }
+        }
+
+        // Provide a facade client that routes calls
+        const routedClient = {
+          callTool: async (name, args) => {
+            // If qualified: id.tool
+            if (typeof name === 'string' && name.includes('.')) {
+              const [sid, ...rest] = name.split('.');
+              const tool = rest.join('.');
+              const ext = externalClients.get(sid);
+              if (!ext) throw new Error(`Unknown external server '${sid}'`);
+              return ext.callTool(tool, args);
+            }
+            // Bare name: try internal first; if ambiguous across externals, error
+            const internalHas = internalTools.some(t => t.name === name);
+            const externalMatches = externalResults.filter(r => r.client && r.tools.some(t => t.name === name));
+            if (internalHas && externalMatches.length === 0) {
+              return internalClient.callTool(name, args);
+            }
+            if (!internalHas && externalMatches.length === 1) {
+              const { id } = externalMatches[0];
+              const ext = externalClients.get(id);
+              return ext.callTool(name, args);
+            }
+            if (internalHas && externalMatches.length >= 1) {
+              throw new Error(`Ambiguous tool '${name}'. Use qualified name like 'internal.${name}' or '<serverId>.${name}'.`);
+            }
+            if (!internalHas && externalMatches.length > 1) {
+              throw new Error(`Ambiguous external tool '${name}'. Use qualified name '<serverId>.${name}'.`);
+            }
+            throw new Error(`Tool '${name}' not found.`);
+          }
+        };
+
+        // Apply tool filtering
+        const filteredTools = filterTools(mergedTools, allowedTools, blockedTools);
+        
+        // Validate and log warnings for tool filtering
+        if (allowedTools && !Array.isArray(allowedTools)) {
+          console.warn('[useMCPClient] allowedTools should be an array of tool names.');
+        }
+        if (blockedTools && !Array.isArray(blockedTools)) {
+          console.warn('[useMCPClient] blockedTools should be an array of tool names.');
+        }
+        if (allowedTools && blockedTools && allowedTools.length > 0 && blockedTools.length > 0) {
+          console.warn('[useMCPClient] Both allowedTools and blockedTools are specified. allowedTools takes priority.');
+        }
+
+        // Log effective tools after filtering
+        try {
+          const effectiveToolNames = filteredTools.map(t => t.qualifiedName);
+          console.log('[MCP] Effective tools available after filtering:', effectiveToolNames);
+        } catch (_) {}
+
+        setTools(filteredTools.map(t => ({ name: t.qualifiedName, description: t.description, parameters: t.parameters })));
+        setClient(routedClient);
+        const anyExternalErrors = externalResults.some(r => r.error);
+        setStatus(anyExternalErrors && externalResults.some(r => r.client) ? 'partial_connected' : 'connected');
+
+        console.log('[MCP] Internal tools:', internalTools);
+        console.log('[MCP] External tools merged:', mergedTools);
       } catch (error) {
         console.error('[MCP] Client initialization failed:', error);
         setStatus('error');
@@ -35,7 +219,7 @@ export const useMCPClient = () => {
     return () => {
       // Cleanup if needed
     };
-  }, []);
+  }, [mcpServers, envVars, allowedTools, blockedTools, externalServers]);
 
   return {
     client,

@@ -79,6 +79,7 @@ function App() {
   modelName="gpt-4o-mini"
   baseUrl="http://127.0.0.1:1234/v1"
   apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+  toolsMode="api" // 'api' (standard) or 'prompt' (legacy)
   locale="en"
   customLocales={{
     en: {
@@ -89,6 +90,72 @@ function App() {
   }}
 />
 ```
+
+### External MCP Servers (WSS and HTTPS SSE)
+```javascript
+<ChatWidget 
+  mcpServers={{
+    "files": {
+      "type": "ws",
+      "url": "wss://mcp.example.com/files"
+    },
+    "audit": {
+      "type": "sse", 
+      "url": "https://mcp.example.com/audit/sse",
+      "headers": {
+        "Authorization": "Bearer ${API_KEY}"
+      }
+    }
+  }}
+  envVars={{
+    API_KEY: process.env.REACT_APP_API_KEY
+  }}
+  allowedTools={["files.readFile", "audit.logEvent"]}
+  locale="en"
+/>
+```
+
+Notes:
+- For WebSocket (`type: "ws"`), browsers do not support custom headers; pass tokens via query params or subprotocols.
+- For SSE (`type: "sse"`), headers are supported for POST requests.
+- Environment variable substitution format: `${VAR_NAME}` or `${VAR_NAME:-default_value}`
+- Tools from external servers are exposed as qualified names like `files.readFile`.
+- Use `allowedTools` to whitelist specific tools (takes priority over `blockedTools`)
+- Use `blockedTools` to blacklist specific tools (all others allowed)
+
+### Tool Filtering
+
+Control which tools are available to the AI:
+
+```javascript
+<ChatWidget 
+  // Allow only specific tools (whitelist mode)
+  allowedTools={["server1.tool1", "server2.tool2"]}
+  // ... or block specific tools (blacklist mode)
+  blockedTools={["dangerousTool", "server.expensiveTool"]}
+/>
+```
+
+- `allowedTools`: If provided, ONLY these tools will be available (takes priority)
+- `blockedTools`: If provided without allowedTools, all tools EXCEPT these will be available
+- Tool names must use qualified format: `"serverId.toolName"` for external servers
+- Internal tools registered via `useMCPServer` use their name directly
+
+### Backward Compatibility
+
+The old `externalServers` array format is still supported but deprecated:
+
+```javascript
+// Deprecated format (still works)
+<ChatWidget 
+  externalServers={[
+    { id: 'files', transport: 'ws', url: 'wss://mcp.example.com/files' },
+    { id: 'audit', transport: 'sse', url: 'https://mcp.example.com/audit/sse' }
+  ]}
+/>
+```
+
+**Migration:** Replace `externalServers` array with `mcpServers` object format for better MCP standard compliance.
 
 ## MCP Tool Development
 
@@ -197,6 +264,9 @@ useMCPServer(TOOLS);
 - **modelName**: AI model name (default: 'gpt-4o-mini')
 - **baseUrl**: API endpoint URL (default: 'http://127.0.0.1:1234/v1')
 - **apiKey**: Authentication key for API access
+- **toolsMode**: Tools integration mode (default: 'api')
+  - `'api'`: Tools passed via OpenAI API parameter only (standard, recommended)
+  - `'prompt'`: Tools passed via API parameter AND described in system prompt (legacy mode for compatibility)
 
 ### Widget Positioning
 

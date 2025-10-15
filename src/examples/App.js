@@ -22,6 +22,24 @@ function App() {
         modelName="devstral-small-2507"
         //baseUrl="https://api.mistral.ai/v1"
         baseUrl="http://localhost:1234/v1"
+        // Example with new MCP servers format
+        // mcpServers={{
+        //   "files": {
+        //     "type": "ws",
+        //     "url": "wss://mcp.example.com/files"
+        //   },
+        //   "api": {
+        //     "type": "sse",
+        //     "url": "https://api.example.com/mcp",
+        //     "headers": {
+        //       "Authorization": "Bearer ${API_KEY}"
+        //     }
+        //   }
+        // }}
+        // envVars={{
+        //   API_KEY: process.env.REACT_APP_API_KEY
+        // }}
+        // allowedTools={["files.readFile", "api.getData"]}
         apiKey={""}
         locale="en"
       />
