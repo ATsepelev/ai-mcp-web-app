@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2025-10-17
+
+### Changed
+- **Optimized package size**: Reduced bundle size by ~20MB
+  - Made `js-tiktoken` an optional dependency instead of required
+  - Added fallback to approximate token counting (~3.5 chars per token)
+  - Users can choose: accurate counting with tiktoken or lightweight approximate counting
+  - Install tiktoken separately for accurate counting: `npm install js-tiktoken`
+
+### Technical
+- Token counting now has dual mode: accurate (with tiktoken) or approximate (without)
+- Approximate counting uses ~3.5 characters per token heuristic
+- Console info message when using approximate counting
+
 ## [1.3.1] - 2025-10-17
 
 ### Added

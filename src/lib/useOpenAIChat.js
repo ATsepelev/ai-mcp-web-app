@@ -1,13 +1,24 @@
 import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import openaiLocales from './locales/openai';
-import { encodingForModel } from 'js-tiktoken';
 
 // Generate unique IDs for tool calls
 const generateToolCallId = () => `toolcall_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+// Try to import tiktoken (optional dependency)
+let encodingForModel = null;
+try {
+  const tiktoken = require('js-tiktoken');
+  encodingForModel = tiktoken.encodingForModel;
+} catch (e) {
+  // js-tiktoken not installed - will use approximate counting
+  console.info('js-tiktoken not installed. Using approximate token counting (4 chars ≈ 1 token). Install js-tiktoken for accurate counting.');
+}
+
 // Initialize tokenizer (cl100k_base encoding used by gpt-4, gpt-3.5-turbo)
 let tokenizer = null;
 const getTokenizer = () => {
+  if (!encodingForModel) return null; // tiktoken not available
+  
   if (!tokenizer) {
     try {
       // Try to get encoding for gpt-4 (cl100k_base)
@@ -15,57 +26,111 @@ const getTokenizer = () => {
     } catch (e) {
       console.warn('Failed to initialize tokenizer for gpt-4:', e);
       // Tokenizer initialization failed - return null
-      // The token counting will return 0 for messages
+      // Will fall back to approximate counting
     }
   }
   return tokenizer;
 };
 
 /**
+ * Approximate token count based on character length
+ * Rule of thumb: ~4 characters per token for English, ~2 for other languages
+ * This is less accurate but doesn't require tiktoken library
+ */
+const approximateTokenCount = (text) => {
+  if (!text || typeof text !== 'string') return 0;
+  // Use 3.5 as average (between English and other languages)
+  return Math.ceil(text.length / 3.5);
+};
+
+/**
  * Count tokens in a single message
+ * Uses tiktoken if available, otherwise falls back to approximate counting
  */
 const countMessageTokens = (message) => {
   const enc = getTokenizer();
-  if (!enc) return 0;
   
-  let tokens = 0;
-  
-  // Count role tokens
-  if (message.role) {
-    tokens += enc.encode(message.role).length;
-  }
-  
-  // Count content tokens
-  if (message.content && typeof message.content === 'string') {
-    tokens += enc.encode(message.content).length;
-  }
-  
-  // Count tool_calls tokens if present
-  if (message.tool_calls && Array.isArray(message.tool_calls)) {
-    for (const tc of message.tool_calls) {
-      if (tc.function) {
-        if (tc.function.name) {
-          tokens += enc.encode(tc.function.name).length;
-        }
-        if (tc.function.arguments) {
-          const argsStr = typeof tc.function.arguments === 'string' 
-            ? tc.function.arguments 
-            : JSON.stringify(tc.function.arguments);
-          tokens += enc.encode(argsStr).length;
+  if (enc) {
+    // Use accurate tiktoken counting
+    let tokens = 0;
+    
+    // Count role tokens
+    if (message.role) {
+      tokens += enc.encode(message.role).length;
+    }
+    
+    // Count content tokens
+    if (message.content && typeof message.content === 'string') {
+      tokens += enc.encode(message.content).length;
+    }
+    
+    // Count tool_calls tokens if present
+    if (message.tool_calls && Array.isArray(message.tool_calls)) {
+      for (const tc of message.tool_calls) {
+        if (tc.function) {
+          if (tc.function.name) {
+            tokens += enc.encode(tc.function.name).length;
+          }
+          if (tc.function.arguments) {
+            const argsStr = typeof tc.function.arguments === 'string' 
+              ? tc.function.arguments 
+              : JSON.stringify(tc.function.arguments);
+            tokens += enc.encode(argsStr).length;
+          }
         }
       }
     }
+    
+    // Count tool response tokens
+    if (message.tool_call_id) {
+      tokens += enc.encode(message.tool_call_id).length;
+    }
+    
+    // Add overhead tokens per message (empirically ~4 tokens per message for formatting)
+    tokens += 4;
+    
+    return tokens;
+  } else {
+    // Use approximate counting (fallback)
+    let tokens = 0;
+    
+    // Count role tokens
+    if (message.role) {
+      tokens += approximateTokenCount(message.role);
+    }
+    
+    // Count content tokens
+    if (message.content && typeof message.content === 'string') {
+      tokens += approximateTokenCount(message.content);
+    }
+    
+    // Count tool_calls tokens if present
+    if (message.tool_calls && Array.isArray(message.tool_calls)) {
+      for (const tc of message.tool_calls) {
+        if (tc.function) {
+          if (tc.function.name) {
+            tokens += approximateTokenCount(tc.function.name);
+          }
+          if (tc.function.arguments) {
+            const argsStr = typeof tc.function.arguments === 'string' 
+              ? tc.function.arguments 
+              : JSON.stringify(tc.function.arguments);
+            tokens += approximateTokenCount(argsStr);
+          }
+        }
+      }
+    }
+    
+    // Count tool response tokens
+    if (message.tool_call_id) {
+      tokens += approximateTokenCount(message.tool_call_id);
+    }
+    
+    // Add overhead tokens per message (empirically ~4 tokens per message for formatting)
+    tokens += 4;
+    
+    return tokens;
   }
-  
-  // Count tool response tokens
-  if (message.tool_call_id) {
-    tokens += enc.encode(message.tool_call_id).length;
-  }
-  
-  // Add overhead tokens per message (empirically ~4 tokens per message for formatting)
-  tokens += 4;
-  
-  return tokens;
 };
 
 /**

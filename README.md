@@ -580,7 +580,8 @@ Available positions:
   - System message (first message) is always preserved
   - Excluded messages remain visible in the UI but are dimmed and marked with a warning icon
   - Hovering over excluded messages shows a tooltip explaining they won't be sent to the AI assistant
-  - Uses accurate token counting via tiktoken (cl100k_base encoding)
+  - Token counting: Uses accurate tiktoken (cl100k_base) if installed, otherwise falls back to approximate counting (~3.5 chars per token)
+  - **Note**: For accurate token counting, install `js-tiktoken` as an optional dependency: `npm install js-tiktoken` (~21MB). Without it, the widget uses approximate counting and is ~20MB smaller.
 
 #### Assistant Customization
 - `assistantName`: Name displayed for AI assistant messages (default: 'AI')
