@@ -21,5 +21,6 @@ export default {
   notSupported: "您的浏览器不支持语音输入。",
   network: "网络错误。请检查网络连接。",
   unknown: "发生未知错误。",
-  voiceNotSupported: "您的浏览器不支持语音输入。"
+  voiceNotSupported: "您的浏览器不支持语音输入。",
+  messageExcludedFromContext: "消息已过时，不会发送给AI助手"
 };

@@ -638,3 +638,27 @@ del {
     color: #4a9fe3;
     background: rgba(107, 180, 227, 0.1);
 }
+
+/* Excluded messages styling */
+.message-excluded {
+    opacity: 0.5;
+    border: 1px dashed #cbd5e1 !important;
+    background: repeating-linear-gradient(
+        45deg,
+        transparent,
+        transparent 10px,
+        rgba(203, 213, 225, 0.1) 10px,
+        rgba(203, 213, 225, 0.1) 20px
+    ) !important;
+    cursor: help;
+    position: relative;
+}
+
+.message-excluded::after {
+    content: '⚠️';
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    font-size: 12px;
+    opacity: 0.6;
+}

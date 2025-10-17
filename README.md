@@ -332,6 +332,7 @@ function App() {
   locale="en"
   expandedWidth={350} // Widget width when expanded (number in pixels, "350px", or "50%" converted to 50vw)
   expandedHeight={400} // Widget height when expanded (number in pixels, "400px", or "80%" converted to 80vh)
+  maxContextSize={32000} // Maximum context size in tokens (default: 32000)
   validationOptions={null} // Assistant response validation options
   customLocales={{
     en: {
@@ -572,6 +573,14 @@ Available positions:
   - Accepts: number (pixels), "350px", "50%" (converted to 50vw viewport width), or "50vw"
 - `expandedHeight`: Height of expanded chat widget (default: 400)
   - Accepts: number (pixels), "400px", "80%" (converted to 80vh viewport height), or "80vh"
+
+#### Context Management
+- `maxContextSize`: Maximum context size in tokens (default: 32000)
+  - When the conversation exceeds this limit, oldest messages are automatically excluded from being sent to the LLM
+  - System message (first message) is always preserved
+  - Excluded messages remain visible in the UI but are dimmed and marked with a warning icon
+  - Hovering over excluded messages shows a tooltip explaining they won't be sent to the AI assistant
+  - Uses accurate token counting via tiktoken (cl100k_base encoding)
 
 #### Assistant Customization
 - `assistantName`: Name displayed for AI assistant messages (default: 'AI')

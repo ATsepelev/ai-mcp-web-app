@@ -21,5 +21,6 @@ export default {
   notSupported: "Voice input is not supported in your browser.",
   network: "Network error. Check your internet connection.",
   unknown: "An unknown error occurred.",
-  voiceNotSupported: "Voice input is not supported in your browser."
+  voiceNotSupported: "Voice input is not supported in your browser.",
+  messageExcludedFromContext: "Message is outdated and not sent to AI assistant"
 };

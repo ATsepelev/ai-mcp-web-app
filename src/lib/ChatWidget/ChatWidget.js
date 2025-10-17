@@ -506,6 +506,8 @@ const ChatWidget = ({
                   // Widget size parameters
                   expandedWidth = 350,
                   expandedHeight = 400,
+                  // Context size management
+                  maxContextSize = 32000,
                   // Theme customization
                   theme = {}
                     }) => {
@@ -600,7 +602,8 @@ const ChatWidget = ({
     actualToolsSchema,
     locale,
     validationOptions,
-    toolsMode
+    toolsMode,
+    maxContextSize
   );
 
 
@@ -1150,6 +1153,9 @@ const ChatWidget = ({
                   displayContent = cleanAssistantContent(msg.content);
                 }
 
+                const isExcluded = msg.excludedFromContext === true;
+                const tooltipText = isExcluded ? currentLocale.messageExcludedFromContext : '';
+
                 const messageStyle = msg.role === 'user' 
                   ? {
                       background: mergedTheme.userMessageBackground,
@@ -1169,8 +1175,10 @@ const ChatWidget = ({
                     ? mergedTheme.botAvatar 
                     : null;
 
+                const messageClasses = `${styles['message']} ${styles[`message-${msg.role}`]} ${isExcluded ? styles['message-excluded'] : ''}`;
+
                 return (
-                  <div key={index} className={`${styles['message']} ${styles[`message-${msg.role}`]}`} style={messageStyle}>
+                  <div key={index} className={messageClasses} style={messageStyle} title={tooltipText}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
                       {avatarUrl && (
                         <img 

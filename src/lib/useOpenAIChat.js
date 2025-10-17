@@ -1,8 +1,154 @@
 import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import openaiLocales from './locales/openai';
+import { encodingForModel } from 'js-tiktoken';
 
 // Generate unique IDs for tool calls
 const generateToolCallId = () => `toolcall_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+// Initialize tokenizer (cl100k_base encoding used by gpt-4, gpt-3.5-turbo)
+let tokenizer = null;
+const getTokenizer = () => {
+  if (!tokenizer) {
+    try {
+      // Try to get encoding for gpt-4 (cl100k_base)
+      tokenizer = encodingForModel('gpt-4');
+    } catch (e) {
+      console.warn('Failed to initialize tokenizer for gpt-4:', e);
+      // Tokenizer initialization failed - return null
+      // The token counting will return 0 for messages
+    }
+  }
+  return tokenizer;
+};
+
+/**
+ * Count tokens in a single message
+ */
+const countMessageTokens = (message) => {
+  const enc = getTokenizer();
+  if (!enc) return 0;
+  
+  let tokens = 0;
+  
+  // Count role tokens
+  if (message.role) {
+    tokens += enc.encode(message.role).length;
+  }
+  
+  // Count content tokens
+  if (message.content && typeof message.content === 'string') {
+    tokens += enc.encode(message.content).length;
+  }
+  
+  // Count tool_calls tokens if present
+  if (message.tool_calls && Array.isArray(message.tool_calls)) {
+    for (const tc of message.tool_calls) {
+      if (tc.function) {
+        if (tc.function.name) {
+          tokens += enc.encode(tc.function.name).length;
+        }
+        if (tc.function.arguments) {
+          const argsStr = typeof tc.function.arguments === 'string' 
+            ? tc.function.arguments 
+            : JSON.stringify(tc.function.arguments);
+          tokens += enc.encode(argsStr).length;
+        }
+      }
+    }
+  }
+  
+  // Count tool response tokens
+  if (message.tool_call_id) {
+    tokens += enc.encode(message.tool_call_id).length;
+  }
+  
+  // Add overhead tokens per message (empirically ~4 tokens per message for formatting)
+  tokens += 4;
+  
+  return tokens;
+};
+
+/**
+ * Count total tokens in an array of messages
+ */
+const countTotalTokens = (messages) => {
+  return messages.reduce((sum, msg) => sum + countMessageTokens(msg), 0);
+};
+
+/**
+ * Filter messages to fit within maxTokens context size
+ * Always keeps system message (first message)
+ * Removes oldest messages first until within limit
+ * Marks excluded messages with excludedFromContext flag
+ */
+const filterMessagesByContext = (messages, maxTokens) => {
+  if (!messages || messages.length === 0) {
+    return { filtered: [], allMessages: [] };
+  }
+  
+  const totalTokens = countTotalTokens(messages);
+  
+  // If within limit, return all messages
+  if (totalTokens <= maxTokens) {
+    return { 
+      filtered: messages,
+      allMessages: messages
+    };
+  }
+  
+  // Always keep system message (first message)
+  const systemMessage = messages[0];
+  const otherMessages = messages.slice(1);
+  
+  // Start with system message tokens
+  let currentTokens = countMessageTokens(systemMessage);
+  
+  // Collect messages from most recent backwards until we hit the limit
+  const reversedOthers = [...otherMessages].reverse();
+  const keptIndices = new Set();
+  const keptMessages = [];
+  
+  for (let i = 0; i < reversedOthers.length; i++) {
+    const msg = reversedOthers[i];
+    const msgTokens = countMessageTokens(msg);
+    
+    if (currentTokens + msgTokens <= maxTokens) {
+      keptMessages.unshift(msg); // Add to beginning of kept messages (to maintain chronological order)
+      currentTokens += msgTokens;
+      keptIndices.add(otherMessages.length - 1 - i); // Original index in otherMessages
+    } else {
+      break;
+    }
+  }
+  
+  // Build filtered array: system message first, then kept messages in chronological order
+  const filtered = [systemMessage, ...keptMessages];
+  
+  // Mark excluded messages
+  const allMessages = messages.map((msg, index) => {
+    if (index === 0) {
+      // System message is always included
+      return msg;
+    }
+    
+    const otherIndex = index - 1;
+    if (keptIndices.has(otherIndex)) {
+      // This message is included
+      return { ...msg, excludedFromContext: false };
+    } else {
+      // This message is excluded
+      return { ...msg, excludedFromContext: true };
+    }
+  });
+  
+  return {
+    filtered: filtered.map(msg => {
+      const { excludedFromContext, ...rest } = msg;
+      return rest;
+    }),
+    allMessages
+  };
+};
 
 /**
  * Parses assistant response, supporting both formats
@@ -160,7 +306,7 @@ function parseAssistantResponse(assistantMsg) {
   };
 }
 
-export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api') => {
+export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -521,11 +667,19 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     setIsLoading(true);
     setError(null);
 
+    let uiMessages; // Declare once for reuse throughout the function
+
     try {
       // Add user message
       const userMsgObj = { role: "user", content: userMessage };
-      setMessages(prev => [...prev, userMsgObj]);
       conversationHistoryRef.current.push(userMsgObj);
+      
+      // Update UI messages with exclusion flags
+      const { allMessages: initialMessages } = filterMessagesByContext(conversationHistoryRef.current, maxContextSize);
+      // Filter out all system messages from UI (they should not be displayed to user)
+      uiMessages = initialMessages.filter(msg => msg.role !== 'system');
+      setMessages(uiMessages);
+      
       usedFollowUpRef.current = false;
 
       let loopCount = 0;
@@ -539,8 +693,11 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       while (loopCount < MAX_LOOPS) {
         loopCount++;
 
-        // Call OpenAI API
-        const response = await callOpenAI(conversationHistoryRef.current);
+        // Filter messages by context size for API call
+        const { filtered } = filterMessagesByContext(conversationHistoryRef.current, maxContextSize);
+
+        // Call OpenAI API with filtered messages only
+        const response = await callOpenAI(filtered);
         const assistantMsg = response.choices[0].message;
 
         // Detect invalid content: { "": {} }
@@ -711,6 +868,12 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       if (loopCount >= MAX_LOOPS) {
         throw new Error(currentLocale.loopLimitReached);
       }
+      
+      // Update UI messages with exclusion flags after loop completes
+      const { allMessages } = filterMessagesByContext(conversationHistoryRef.current, maxContextSize);
+      // Filter out all system messages from UI (they should not be displayed to user)
+      uiMessages = allMessages.filter(msg => msg.role !== 'system');
+      setMessages(uiMessages);
     } catch (err) {
       setError(err.message);
 
@@ -719,13 +882,18 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         content: currentLocale.errorMessage.replace('{message}', err.message)
       };
 
-      setMessages(prev => [...prev, errorMsg]);
       conversationHistoryRef.current.push(errorMsg);
+      
+      // Update UI messages with exclusion flags after error
+      const { allMessages } = filterMessagesByContext(conversationHistoryRef.current, maxContextSize);
+      // Filter out all system messages from UI (they should not be displayed to user)
+      uiMessages = allMessages.filter(msg => msg.role !== 'system');
+      setMessages(uiMessages);
     } finally {
       setIsLoading(false);
       isProcessingRef.current = false;
     }
-  }, [isLoading, callOpenAI, handleToolCalls, actualToolsSchema, currentLocale]);
+  }, [isLoading, callOpenAI, handleToolCalls, actualToolsSchema, currentLocale, maxContextSize]);
 
   // Streaming version of sendMessage
   const sendMessageStream = useCallback(async (userMessage) => {
@@ -737,11 +905,19 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     setError(null);
     setStreamingMessage(null);
 
+    let uiMessages; // Declare once for reuse throughout the function
+
     try {
       // Add user message
       const userMsgObj = { role: "user", content: userMessage };
-      setMessages(prev => [...prev, userMsgObj]);
       conversationHistoryRef.current.push(userMsgObj);
+      
+      // Update UI messages with exclusion flags
+      const { allMessages: initialMessages } = filterMessagesByContext(conversationHistoryRef.current, maxContextSize);
+      // Filter out all system messages from UI (they should not be displayed to user)
+      uiMessages = initialMessages.filter(msg => msg.role !== 'system');
+      setMessages(uiMessages);
+      
       usedFollowUpRef.current = false;
 
       let loopCount = 0;
@@ -755,6 +931,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       while (loopCount < MAX_LOOPS) {
         loopCount++;
 
+        // Filter messages by context size for API call
+        const { filtered } = filterMessagesByContext(conversationHistoryRef.current, maxContextSize);
+
         // Initialize streaming message for this iteration
         const initialStreamingMsg = { role: "assistant", content: "" };
         setStreamingMessage(initialStreamingMsg);
@@ -763,7 +942,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         let accumulatedContent = "";
         let toolCalls = null;
 
-        await callOpenAIStream(conversationHistoryRef.current, {}, (delta) => {
+        await callOpenAIStream(filtered, {}, (delta) => {
           if (delta.content) {
             accumulatedContent += delta.content;
             setStreamingMessage(prev => ({
@@ -936,6 +1115,12 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       if (loopCount >= MAX_LOOPS) {
         throw new Error(currentLocale.loopLimitReached);
       }
+      
+      // Update UI messages with exclusion flags after loop completes
+      const { allMessages } = filterMessagesByContext(conversationHistoryRef.current, maxContextSize);
+      // Filter out all system messages from UI (they should not be displayed to user)
+      uiMessages = allMessages.filter(msg => msg.role !== 'system');
+      setMessages(uiMessages);
 
     } catch (err) {
       setError(err.message);
@@ -945,15 +1130,20 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         content: currentLocale.errorMessage.replace('{message}', err.message)
       };
 
-      setMessages(prev => [...prev, errorMsg]);
       conversationHistoryRef.current.push(errorMsg);
+      
+      // Update UI messages with exclusion flags after error
+      const { allMessages } = filterMessagesByContext(conversationHistoryRef.current, maxContextSize);
+      // Filter out all system messages from UI (they should not be displayed to user)
+      uiMessages = allMessages.filter(msg => msg.role !== 'system');
+      setMessages(uiMessages);
     } finally {
       setIsLoading(false);
       setIsStreaming(false);
       setStreamingMessage(null);
       isProcessingRef.current = false;
     }
-  }, [isLoading, callOpenAIStream, handleToolCalls, currentLocale, locale, validateAssistantContent]);
+  }, [isLoading, callOpenAIStream, handleToolCalls, currentLocale, locale, validateAssistantContent, maxContextSize]);
 
   return {
     messages,

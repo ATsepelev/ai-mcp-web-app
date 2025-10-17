@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2025-10-17
+
+### Added
+- **Context Size Management**: New `maxContextSize` parameter (default: 32000 tokens) for automatic context window management
+  - Accurately counts tokens using tiktoken library (cl100k_base encoding)
+  - Automatically excludes oldest messages when context limit is exceeded
+  - System message is always preserved in the first position
+  - Excluded messages remain visible in UI with visual indicators (dimmed, dashed border, warning icon)
+  - Localized tooltips explain excluded messages won't be sent to AI assistant
+  - Supports English, Russian, and Chinese locales
+
+### Fixed
+- System messages are now properly filtered from UI display
+- System message always maintains first position in filtered message arrays
+- Fixed duplicate variable declarations in message filtering logic
+
+### Dependencies
+- Added `js-tiktoken` ^1.0.15 for accurate token counting
+
 ## [1.2.0] - 2025-01-27
 
 ### Added
