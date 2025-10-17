@@ -47,6 +47,253 @@ This makes it an exceptionally powerful yet straightforward solution for automat
 
 ## Usage
 
+### Quick Start
+
+#### JavaScript (Create React App)
+
+```bash
+npm install ai-mcp-web-app
+```
+
+```javascript
+// src/App.js
+import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { TOOLS } from "./mcp_tools";
+
+function App() {
+  useMCPServer(TOOLS);
+  
+  return (
+    <div className="App">
+      <ChatWidget 
+        modelName="gpt-4o-mini"
+        baseUrl="http://127.0.0.1:1234/v1"
+        apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+        locale="en"
+      />
+    </div>
+  );
+}
+
+export default App;
+```
+
+#### TypeScript (Create React App)
+
+```bash
+npm install ai-mcp-web-app
+```
+
+```typescript
+// src/App.tsx
+import React from 'react';
+import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { TOOLS } from "./mcp_tools";
+
+function App(): JSX.Element {
+  useMCPServer(TOOLS);
+  
+  return (
+    <div className="App">
+      <ChatWidget 
+        modelName="gpt-4o-mini"
+        baseUrl="http://127.0.0.1:1234/v1"
+        apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+        locale="en"
+      />
+    </div>
+  );
+}
+
+export default App;
+```
+
+**Tool Definition (TypeScript):**
+
+```typescript
+// src/mcp_tools.ts
+interface Tool {
+  function: {
+    name: string;
+    description: string;
+    parameters: {
+      type: string;
+      properties: Record<string, any>;
+      required?: string[];
+    };
+  };
+  handler: (args: any) => Promise<any> | any;
+}
+
+export const TOOLS: Tool[] = [
+  {
+    function: {
+      name: "exampleTool",
+      description: "Example tool description",
+      parameters: {
+        type: "object",
+        properties: {
+          param1: { 
+            type: "string", 
+            description: "Parameter description" 
+          }
+        },
+        required: ["param1"]
+      }
+    },
+    handler: async (args: { param1: string }) => {
+      // Tool implementation
+      return { success: true, result: args.param1 };
+    }
+  }
+];
+```
+
+#### Vite (JavaScript + JSX)
+
+```bash
+npm install ai-mcp-web-app
+```
+
+```javascript
+// src/App.jsx
+import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { TOOLS } from "./mcp_tools";
+
+function App() {
+  useMCPServer(TOOLS);
+  
+  return (
+    <ChatWidget 
+      modelName="gpt-4o-mini"
+      baseUrl={import.meta.env.VITE_OPENAI_BASE_URL || "http://127.0.0.1:1234/v1"}
+      apiKey={import.meta.env.VITE_OPENAI_API_KEY}
+      locale="en"
+    />
+  );
+}
+
+export default App;
+```
+
+**Environment Variables (.env):**
+```
+VITE_OPENAI_API_KEY=your-api-key
+VITE_OPENAI_BASE_URL=http://127.0.0.1:1234/v1
+```
+
+#### Vite (TypeScript + TSX)
+
+```bash
+npm install ai-mcp-web-app
+```
+
+```typescript
+// src/App.tsx
+import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { TOOLS } from "./mcp_tools";
+
+function App(): JSX.Element {
+  useMCPServer(TOOLS);
+  
+  return (
+    <ChatWidget 
+      modelName="gpt-4o-mini"
+      baseUrl={import.meta.env.VITE_OPENAI_BASE_URL || "http://127.0.0.1:1234/v1"}
+      apiKey={import.meta.env.VITE_OPENAI_API_KEY}
+      locale="en"
+    />
+  );
+}
+
+export default App;
+```
+
+**Vite Configuration Note:**
+The widget works out of the box with Vite. No additional configuration is needed.
+
+#### Next.js (App Router - TypeScript)
+
+```bash
+npm install ai-mcp-web-app
+```
+
+```typescript
+// app/components/ChatWidgetWrapper.tsx
+'use client';
+
+import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { TOOLS } from "./mcp_tools";
+
+export default function ChatWidgetWrapper() {
+  useMCPServer(TOOLS);
+  
+  return (
+    <ChatWidget 
+      modelName="gpt-4o-mini"
+      baseUrl={process.env.NEXT_PUBLIC_OPENAI_BASE_URL || "http://127.0.0.1:1234/v1"}
+      apiKey={process.env.NEXT_PUBLIC_OPENAI_API_KEY}
+      locale="en"
+    />
+  );
+}
+```
+
+```typescript
+// app/page.tsx
+import ChatWidgetWrapper from './components/ChatWidgetWrapper';
+
+export default function Home() {
+  return (
+    <main>
+      <h1>My App</h1>
+      <ChatWidgetWrapper />
+    </main>
+  );
+}
+```
+
+**Important:** The widget must be wrapped in a client component with the `'use client'` directive because it uses browser APIs (speech recognition, event listeners).
+
+**Environment Variables (.env.local):**
+```
+NEXT_PUBLIC_OPENAI_API_KEY=your-api-key
+NEXT_PUBLIC_OPENAI_BASE_URL=http://127.0.0.1:1234/v1
+```
+
+#### Next.js (Pages Router - TypeScript)
+
+```typescript
+// pages/_app.tsx
+import type { AppProps } from 'next/app';
+import '../styles/globals.css';
+
+export default function App({ Component, pageProps }: AppProps) {
+  return <Component {...pageProps} />;
+}
+```
+
+```typescript
+// pages/index.tsx
+import dynamic from 'next/dynamic';
+
+const ChatWidgetWrapper = dynamic(
+  () => import('../components/ChatWidgetWrapper'),
+  { ssr: false }
+);
+
+export default function Home() {
+  return (
+    <main>
+      <h1>My App</h1>
+      <ChatWidgetWrapper />
+    </main>
+  );
+}
+```
+
+**Note:** Use `dynamic` import with `ssr: false` to prevent server-side rendering of the widget, as it relies on browser-specific APIs.
+
 ### Basic Implementation
 
 ```javascript
@@ -75,12 +322,17 @@ function App() {
   position="bottom-right"
   showComponents="both" // 'both', 'chat', 'voice'
   chatTitle="My AI Assistant"
+  assistantName="Assistant" // Name displayed for AI messages
   greeting="Welcome! How can I help you today?"
   modelName="gpt-4o-mini"
   baseUrl="http://127.0.0.1:1234/v1"
   apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+  toolsSchema={[]} // Custom tools schema (overrides MCP tools)
   toolsMode="api" // 'api' (standard) or 'prompt' (legacy)
   locale="en"
+  expandedWidth={350} // Widget width when expanded (number in pixels, "350px", or "50%" converted to 50vw)
+  expandedHeight={400} // Widget height when expanded (number in pixels, "400px", or "80%" converted to 80vh)
+  validationOptions={null} // Assistant response validation options
   customLocales={{
     en: {
       openChat: "Open chat",
@@ -100,7 +352,7 @@ function App() {
       "url": "wss://mcp.example.com/files"
     },
     "audit": {
-      "type": "sse", 
+      "type": "http-stream", 
       "url": "https://mcp.example.com/audit/sse",
       "headers": {
         "Authorization": "Bearer ${API_KEY}"
@@ -117,7 +369,7 @@ function App() {
 
 Notes:
 - For WebSocket (`type: "ws"`), browsers do not support custom headers; pass tokens via query params or subprotocols.
-- For SSE (`type: "sse"`), headers are supported for POST requests.
+- For SSE (`type: "http-stream"`), headers are supported for POST requests (also accepts `"sse"` for backward compatibility).
 - Environment variable substitution format: `${VAR_NAME}` or `${VAR_NAME:-default_value}`
 - Tools from external servers are exposed as qualified names like `files.readFile`.
 - Use `allowedTools` to whitelist specific tools (takes priority over `blockedTools`)
@@ -260,49 +512,197 @@ useMCPServer(TOOLS);
 ```
 
 ## API Configuration
+
 ### OpenAI Compatible Endpoints
 - **modelName**: AI model name (default: 'gpt-4o-mini')
 - **baseUrl**: API endpoint URL (default: 'http://127.0.0.1:1234/v1')
 - **apiKey**: Authentication key for API access
 - **toolsMode**: Tools integration mode (default: 'api')
-  - `'api'`: Tools passed via OpenAI API parameter only (standard, recommended)
-  - `'prompt'`: Tools passed via API parameter AND described in system prompt (legacy mode for compatibility)
+  - `'api'`: Standard mode - tools passed via OpenAI API `tools` parameter only (recommended for GPT-4, Claude, and other modern models)
+  - `'prompt'`: Legacy mode - tools passed via API parameter AND listed in system prompt (for compatibility with older/custom models that need tools described in prompt)
 
-### Widget Positioning
+### System Prompts
 
+The widget uses localized system prompts that instruct the AI on how to use tools properly. The prompts vary based on the `toolsMode`:
+
+**Standard Mode (`toolsMode: 'api'`):**
+```
+You are a browser assistant. You can perform actions on web pages using strictly defined tools.
+
+Rules:
+1. All actions are performed ONLY through tool calls.
+2. If there is not enough information - clarify with the user.
+3. Respond in [language based on locale].
+4. When requesting a tool, use standard tool_calls only.
+```
+
+**Legacy Mode (`toolsMode: 'prompt'`):**
+```
+You are a browser assistant. You can perform actions on web pages using strictly defined tools.
+
+Available tools:
+[List of available tools with descriptions]
+
+Rules:
+1. All actions are performed ONLY through tool calls.
+2. If there is not enough information - clarify with the user.
+3. Respond in [language based on locale].
+4. When requesting a tool, use format: [{"name": "tool_name", "arguments": {...}}]
+```
+
+System prompts are automatically localized for `en`, `ru`, and `zh` locales and can be customized if needed
+
+### Widget Configuration
+
+#### Positioning
 Available positions:
 - `top-left`
 - `top-right` 
 - `bottom-left`
 - `bottom-right` (default)
 
-## Localization
-Supported languages:
-- English (`en`)
-- Russian (`ru`)
-- Chinese (`zh`)
+#### Component Visibility
+- `showComponents`: Controls which components are visible
+  - `'both'` (default): Show both chat and voice buttons
+  - `'chat'`: Show only chat button
+  - `'voice'`: Show only voice button
 
-Add custom locales:
+#### Widget Sizing
+- `expandedWidth`: Width of expanded chat widget (default: 350)
+  - Accepts: number (pixels), "350px", "50%" (converted to 50vw viewport width), or "50vw"
+- `expandedHeight`: Height of expanded chat widget (default: 400)
+  - Accepts: number (pixels), "400px", "80%" (converted to 80vh viewport height), or "80vh"
+
+#### Assistant Customization
+- `assistantName`: Name displayed for AI assistant messages (default: 'AI')
+- `chatTitle`: Title shown in chat header (default: 'AI Assistant Chat')
+- `greeting`: Welcome message displayed when chat opens
+
+#### Tools Configuration
+- `toolsSchema`: Custom tools schema array (overrides MCP tools if provided)
+- `validationOptions`: Assistant response validation options (default: null)
+- `toolsMode`: Tools integration mode
+  - `'api'` (default): Standard OpenAI API parameter mode
+  - `'prompt'`: Legacy mode with system prompt description
+
+## Localization
+
+### Supported Languages
+The widget includes built-in localization for:
+- **English** (`en`)
+- **Russian** (`ru`)
+- **Chinese** (`zh`)
+
+Set the locale using the `locale` prop:
+```javascript
+<ChatWidget locale="ru" />
+```
+
+### Custom Locales
+
+You can add custom translations or override existing ones:
+
 ```javascript
 const customLocales = {
   fr: {
+    // Chat widget labels
     openChat: "Ouvrir le chat",
     voiceInput: "Entrée vocale",
-    // ... other French translations
+    stopRecording: "Arrêter l'enregistrement",
+    voiceNotSupported: "Reconnaissance vocale non prise en charge",
+    clearChat: "Effacer le chat",
+    collapseChat: "Réduire le chat",
+    
+    // Message placeholders and status
+    enterMessage: "Tapez votre message...",
+    speaking: "En train de parler...",
+    thinking: "réfléchit...",
+    user: "Utilisateur",
+    tool: "Outil",
+    error: "Erreur",
+    greetingTitle: "Bienvenue",
+    
+    // Tool execution messages
+    callingToolGeneric: "Exécution de l'outil...",
+    
+    // Error messages (voice recognition)
+    noSpeech: "Aucun son détecté",
+    audioCapture: "Erreur de capture audio",
+    notAllowed: "Microphone non autorisé",
+    notSupported: "Reconnaissance vocale non prise en charge",
+    network: "Erreur réseau",
+    unknown: "Erreur inconnue"
   }
 };
 
-<ChatWidget customLocales={customLocales} locale="fr" />
+<ChatWidget 
+  customLocales={customLocales} 
+  locale="fr" 
+/>
 ```
 
+**Note:** Custom locales are merged with built-in translations, so you only need to specify the keys you want to override or add
+
 ## Styling
-The widget uses CSS modules with extensive customization options:
+
+The widget uses **CSS Modules** for scoped styling, ensuring no conflicts with your application's styles.
+
+### Built-in Features
 - Gradient backgrounds
-- Smooth animations
+- Smooth animations and transitions
 - Responsive shadows
 - Mobile-friendly design
+- Markdown rendering support (headings, lists, code blocks, tables, checkboxes)
 
-Customize appearance by modifying `ChatWidget.css` or providing custom component.
+### Theme Customization
+
+You can customize the widget's appearance using the `theme` prop:
+
+```javascript
+<ChatWidget 
+  theme={{
+    // Collapsed state buttons
+    mainButtonBackground: 'linear-gradient(145deg, #667eea, #764ba2)',
+    mainButtonColor: 'white',
+    voiceButtonBackground: 'linear-gradient(145deg, #f093fb, #f5576c)',
+    
+    // Expanded state - header
+    headerBackground: 'linear-gradient(135deg, #667eea, #764ba2)',
+    headerTextColor: 'white',
+    
+    // Messages
+    messagesBackground: '#f5f5f5',
+    userMessageBackground: 'linear-gradient(135deg, #667eea, #764ba2)',
+    userMessageColor: 'white',
+    assistantMessageBackground: 'white',
+    assistantMessageColor: '#333',
+    
+    // Input area
+    inputBackground: 'white',
+    sendButtonBackground: 'linear-gradient(145deg, #667eea, #764ba2)',
+    
+    // Custom images (optional)
+    headerIcon: '/path/to/icon.png',
+    botAvatar: '/path/to/bot-avatar.png',
+    userAvatar: '/path/to/user-avatar.png',
+    expandedBackgroundImage: '/path/to/background.png'
+  }}
+/>
+```
+
+All theme properties are optional and will fall back to default values if not specified.
+
+### Custom Component
+
+For complete control over the UI, you can provide a custom component:
+
+```javascript
+<ChatWidget 
+  customComponent={<YourCustomChatUI />}
+/>
+```
+
+Your custom component will receive all widget props and state as props, allowing you to build a completely custom interface while leveraging the widget's logic
 
 ## Browser Support
 - Chrome 60+
@@ -311,23 +711,53 @@ Customize appearance by modifying `ChatWidget.css` or providing custom component
 - Edge 79+
 
 ## Development
+
 ### Project Structure
 ```
-lib/
-├── ChatWidget/
-│   ├── ChatWidget.js
-│   ├── ChatWidget.css
-│   └── locales/
-│   │   ├── index.js
-│   │   ├── ...
-├── locales/
-│   ├── openai/
-│   │   ├── index.js
-│   │   ├── ...
-├── mcp_core.js
-├── useMCPClient.js
-├── useMCPServer.js
-└── useOpenAIChat.js
+src/
+├── index.js                      # Main export file
+├── lib/
+│   ├── ChatWidget/
+│   │   ├── ChatWidget.js         # Main chat widget component
+│   │   ├── ChatWidget.module.css # CSS modules for styling
+│   │   └── locales/              # Widget UI translations
+│   │       ├── index.js
+│   │       ├── en.js
+│   │       ├── ru.js
+│   │       └── zh.js
+│   ├── locales/
+│   │   └── openai/               # System prompt translations
+│   │       ├── index.js
+│   │       ├── en.js
+│   │       ├── ru.js
+│   │       └── zh.js
+│   ├── mcp_core.js               # MCP protocol implementation
+│   ├── useMCPClient.js           # React hook for MCP client
+│   ├── useMCPServer.js           # React hook for MCP server
+│   └── useOpenAIChat.js          # Chat logic and OpenAI integration
+└── examples/                      # Example implementations (not included in build)
+```
+
+### Build System
+
+The project uses Rollup for bundling with automatic version injection:
+
+- **Version and Repository URL**: Automatically injected from `package.json` during build using `@rollup/plugin-replace`
+- **CSS Modules**: Scoped styles with hash-based class names for isolation
+- **Multiple Output Formats**: CommonJS, ES Modules, and UMD for maximum compatibility
+- **Tree Shaking**: Dead code elimination in ES module build
+- **Minification**: Optimized production bundles with Terser
+
+**Build Configuration**: `rollup.config.cjs`
+```javascript
+// Version and repository URL are automatically replaced from package.json
+replace({
+  preventAssignment: true,
+  values: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __REPO_URL__: JSON.stringify(pkg.repository.url)
+  }
+})
 ```
 
 ### Key Components

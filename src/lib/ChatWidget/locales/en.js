@@ -5,7 +5,7 @@ export default {
   clearChat: "Clear chat",
   collapseChat: "Collapse chat",
   send: "Send",
-  thinking: "AI is thinking...",
+  thinking: "is thinking...",
   error: "Error",
   greetingTitle: "🤖 AI Assistant:",
   user: "You",

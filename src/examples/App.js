@@ -29,7 +29,7 @@ function App() {
         //     "url": "wss://mcp.example.com/files"
         //   },
         //   "api": {
-        //     "type": "sse",
+        //     "type": "http-stream",
         //     "url": "https://api.example.com/mcp",
         //     "headers": {
         //       "Authorization": "Bearer ${API_KEY}"
@@ -42,6 +42,36 @@ function App() {
         // allowedTools={["files.readFile", "api.getData"]}
         apiKey={""}
         locale="en"
+        // Example theme customization
+        // theme={{
+        //   // Collapsed state colors
+        //   mainButtonBackground: 'linear-gradient(145deg, #10b981, #059669)',
+        //   mainButtonColor: 'white',
+        //   voiceButtonBackground: 'linear-gradient(145deg, #8b5cf6, #7c3aed)',
+        //   
+        //   // Header colors
+        //   headerBackground: 'linear-gradient(135deg, #f3e7ff, #e9d5ff)',
+        //   headerTextColor: '#4c1d95',
+        //   
+        //   // Message colors
+        //   messagesBackground: '#faf5ff',
+        //   userMessageBackground: 'linear-gradient(135deg, #ddd6fe, #c4b5fd)',
+        //   userMessageColor: '#4c1d95',
+        //   assistantMessageBackground: 'white',
+        //   assistantMessageBorder: '#e9d5ff',
+        //   
+        //   // Input area colors
+        //   inputBackground: '#faf5ff',
+        //   inputBorder: '#e9d5ff',
+        //   inputFocusBorder: '#c4b5fd',
+        //   sendButtonBackground: 'linear-gradient(145deg, #8b5cf6, #7c3aed)',
+        //   
+        //   // Images (optional)
+        //   // headerIcon: '/path/to/chat-icon.png',
+        //   // botAvatar: '/path/to/bot-avatar.png',
+        //   // userAvatar: '/path/to/user-avatar.png',
+        //   // expandedBackgroundImage: '/path/to/background.jpg'
+        // }}
       />
     </div>
   );

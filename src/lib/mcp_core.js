@@ -111,7 +111,6 @@ class MCPBase {
   }
 
   handleRequestError(id, error) {
-    console.error(`Error handling request:`, error);
     if (id !== undefined) {
       this.send({
         jsonrpc: "2.0",
@@ -210,7 +209,6 @@ class MCPServer extends MCPBase {
 
     // Check for duplicates
     if (this.tools.some(t => t.name === tool.name)) {
-      console.warn(`Tool '${tool.name}' is already registered. Overwriting.`);
       this.tools = this.tools.filter(t => t.name !== tool.name);
     }
 
@@ -220,8 +218,6 @@ class MCPServer extends MCPBase {
       parameters: tool.parameters || {},
       handler: tool.handler
     });
-
-    console.log(`Registered tool: ${tool.name}`);
   }
 
   registerTools(tools) {

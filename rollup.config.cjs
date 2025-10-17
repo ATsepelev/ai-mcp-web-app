@@ -3,9 +3,18 @@ const commonjs = require('@rollup/plugin-commonjs');
 const babel = require('@rollup/plugin-babel');
 const terser = require('@rollup/plugin-terser');
 const postcss = require('rollup-plugin-postcss');
+const replace = require('@rollup/plugin-replace');
+const pkg = require('./package.json');
 
-// Общие плагины для всех конфигураций
+// Common plugins for all configurations
 const commonPlugins = [
+  replace({
+    preventAssignment: true,
+    values: {
+      __APP_VERSION__: JSON.stringify(pkg.version),
+      __REPO_URL__: JSON.stringify(pkg.repository.url.replace(/^git\+/, '').replace(/\.git$/, ''))
+    }
+  }),
   resolve({
     browser: true,
     extensions: ['.js', '.jsx']
@@ -25,7 +34,7 @@ const commonPlugins = [
   })
 ];
 
-// Общие внешние зависимости для всех конфигураций
+// Common external dependencies for all configurations
 const commonExternal = [
   'react',
   'react-dom',
@@ -47,7 +56,9 @@ module.exports = [
       postcss({
         extract: false,
         minimize: true,
-        modules: false
+        modules: {
+          generateScopedName: '[hash:base64:8]'
+        }
       }),
       ...commonPlugins
     ],
@@ -66,7 +77,9 @@ module.exports = [
       postcss({
         extract: false,
         minimize: true,
-        modules: false
+        modules: {
+          generateScopedName: '[hash:base64:8]'
+        }
       }),
       ...commonPlugins,
       terser()
@@ -92,7 +105,10 @@ module.exports = [
     plugins: [
       postcss({
         extract: 'chat-widget.css',
-        minimize: true
+        minimize: true,
+        modules: {
+          generateScopedName: '[hash:base64:8]'
+        }
       }),
       ...commonPlugins,
       terser()

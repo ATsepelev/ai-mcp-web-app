@@ -85,7 +85,7 @@ function parseAssistantResponse(assistantMsg) {
             .replace(/<\|message\|>/gi, '')
             .trim();
         } catch (e) {
-          console.error('gpt-oss parse error:', e);
+          // Parsing error, continue with original content
         }
       }
 
@@ -138,7 +138,7 @@ function parseAssistantResponse(assistantMsg) {
             }));
             displayContent = displayContent.replace(toolCallMatch[0], '').trim();
           } catch (e) {
-            console.error("JSON parse error:", e, "Content:", toolCallMatch[1]);
+            // JSON parse error, continue without tool calls
           }
         }
       }
@@ -164,6 +164,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState(null);
+  const [isExecutingTools, setIsExecutingTools] = useState(false);
 
   // Get current localization
   const currentLocale = openaiLocales[locale] || openaiLocales.ru;
@@ -206,11 +209,15 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     setMessages([]);
     conversationHistoryRef.current = [{ role: "system", content: systemPrompt }];
     setError(null);
-  }, []);
+    setIsStreaming(false);
+    setStreamingMessage(null);
+  }, [systemPrompt]);
 
   const handleToolCalls = useCallback(async (toolCallsArray) => {
+    setIsExecutingTools(true);
     const toolResponses = [];
 
+    try {
     // Create array of promises for parallel tool execution
     const toolPromises = toolCallsArray.map(async (toolCall) => {
       const funcName = toolCall.name;
@@ -247,7 +254,6 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       }
 
       try {
-        console.log(`[Tool] Calling ${funcName} with:`, funcArgs);
         const result = await mcpClient.callTool(funcName, funcArgs);
 
         return {
@@ -256,7 +262,6 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
           content: JSON.stringify(result)
         };
       } catch (error) {
-        console.error(`[Tool] Error in ${funcName}:`, error);
         return {
           role: "tool",
           tool_call_id: toolCallId,
@@ -273,7 +278,6 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       if (result.status === 'fulfilled') {
         toolResponses.push(result.value);
       } else {
-        console.error('Tool processing error:', result.reason);
         toolResponses.push({
           role: "tool",
           tool_call_id: 'unknown',
@@ -283,6 +287,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     }
 
     return toolResponses;
+    } finally {
+      setIsExecutingTools(false);
+    }
   }, [mcpClient, actualToolsSchema, currentLocale]);
 
   const callOpenAI = useCallback(async (history, options = {}) => {
@@ -311,8 +318,6 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     if (actualApiKey) {
       headers['Authorization'] = `Bearer ${actualApiKey}`;
     }
-
-    console.log('Sending request to:', actualBaseUrl);
 
     const response = await fetch(`${actualBaseUrl}/chat/completions`, {
       method: 'POST',
@@ -349,6 +354,105 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     }
 
     return await response.json();
+  }, [modelName, baseUrl, apiKey, actualToolsSchema, currentLocale, toolsMode]);
+
+  // Streaming version of OpenAI API call
+  const callOpenAIStream = useCallback(async (history, options = {}, onChunk) => {
+    // Use provided parameters or defaults
+    const actualModelName = modelName || 'gpt-4o-mini';
+    const actualBaseUrl = baseUrl || 'http://127.0.0.1:1234/v1';
+    const actualApiKey = apiKey;
+    const toolsSchema = options.toolsOverride !== undefined ? options.toolsOverride : (actualToolsSchema || []);
+    const actualToolChoice = options.toolChoiceOverride !== undefined ? options.toolChoiceOverride : 'auto';
+
+    const requestBody = {
+      model: actualModelName,
+      messages: history,
+      stream: true
+    };
+
+    // Always include tools in API request when available
+    if (toolsSchema.length > 0) {
+      requestBody.tools = toolsSchema;
+      requestBody.tool_choice = actualToolChoice;
+    }
+
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+
+    if (actualApiKey) {
+      headers['Authorization'] = `Bearer ${actualApiKey}`;
+    }
+
+    const response = await fetch(`${actualBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      const status = response.status;
+
+      let errorMsg = currentLocale.apiError.replace('{status}', status);
+      if (status === 401) {
+        errorMsg += currentLocale.invalidApiKey;
+      } else if (status === 404) {
+        errorMsg += currentLocale.invalidEndpoint;
+      } else if (status === 429) {
+        errorMsg += currentLocale.rateLimitExceeded;
+      } else if (status === 400) {
+        // Try to extract error details
+        try {
+          const errorData = JSON.parse(errorText);
+          if (errorData.error?.message) {
+            errorMsg += ` - ${errorData.error.message}`;
+          }
+        } catch {
+          errorMsg += currentLocale.invalidRequest;
+        }
+      } else if (status === 500) {
+        errorMsg += currentLocale.internalServerError;
+      }
+
+      throw new Error(`${errorMsg}`);
+    }
+
+    // Handle streaming response
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
+              return;
+            }
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.choices && parsed.choices[0] && parsed.choices[0].delta) {
+                onChunk(parsed.choices[0].delta);
+              }
+            } catch (e) {
+              // Failed to parse chunk, continue
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }, [modelName, baseUrl, apiKey, actualToolsSchema, currentLocale, toolsMode]);
 
   // Optional validator: checks assistant display content and can warn or request a revision
@@ -494,11 +598,6 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         // Parse response
         const parsed = parseAssistantResponse(assistantMsg);
 
-        // Log internal thoughts
-        if (parsed.think) {
-          console.log("[Think]:", parsed.think);
-        }
-
         // Add to history
         conversationHistoryRef.current.push(assistantMsg);
 
@@ -523,19 +622,11 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
 
         // Process tool calls
         if (parsed.toolCallsJson?.length) {
-          console.log("[Tools]:", parsed.toolCallsJson);
-
           // Execute tools
           const toolResponses = await handleToolCalls(parsed.toolCallsJson);
-          console.log(toolResponses)
 
           // Check response count
           if (toolResponses.length !== parsed.toolCallsJson.length) {
-            console.error("Response count doesn't match tool call count", {
-              calls: parsed.toolCallsJson.length,
-              responses: toolResponses.length
-            });
-
             // Force responses for each call
             const forcedResponses = parsed.toolCallsJson.map((call, index) => {
               if (index < toolResponses.length) {
@@ -621,7 +712,6 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         throw new Error(currentLocale.loopLimitReached);
       }
     } catch (err) {
-      console.error("Error handling:", err);
       setError(err.message);
 
       const errorMsg = {
@@ -637,11 +727,243 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     }
   }, [isLoading, callOpenAI, handleToolCalls, actualToolsSchema, currentLocale]);
 
+  // Streaming version of sendMessage
+  const sendMessageStream = useCallback(async (userMessage) => {
+    if (!userMessage.trim() || isLoading || isProcessingRef.current) return;
+
+    isProcessingRef.current = true;
+    setIsLoading(true);
+    setIsStreaming(true);
+    setError(null);
+    setStreamingMessage(null);
+
+    try {
+      // Add user message
+      const userMsgObj = { role: "user", content: userMessage };
+      setMessages(prev => [...prev, userMsgObj]);
+      conversationHistoryRef.current.push(userMsgObj);
+      usedFollowUpRef.current = false;
+
+      let loopCount = 0;
+      const MAX_LOOPS = 5;
+
+      // One-shot retry for control-tag responses
+      const usedControlTagRetryRef = { current: false };
+      // One-shot retry for invalid empty-key JSON like {"": {}}
+      const usedEmptyJsonRetryRef = { current: false };
+
+      while (loopCount < MAX_LOOPS) {
+        loopCount++;
+
+        // Initialize streaming message for this iteration
+        const initialStreamingMsg = { role: "assistant", content: "" };
+        setStreamingMessage(initialStreamingMsg);
+
+        // Handle streaming response
+        let accumulatedContent = "";
+        let toolCalls = null;
+
+        await callOpenAIStream(conversationHistoryRef.current, {}, (delta) => {
+          if (delta.content) {
+            accumulatedContent += delta.content;
+            setStreamingMessage(prev => ({
+              ...prev,
+              content: accumulatedContent
+            }));
+          }
+          
+          if (delta.tool_calls) {
+            if (!toolCalls) toolCalls = [];
+            delta.tool_calls.forEach(tc => {
+              const existingIndex = toolCalls.findIndex(t => t.index === tc.index);
+              if (existingIndex >= 0) {
+                // Update existing tool call
+                if (tc.function) {
+                  if (!toolCalls[existingIndex].function) {
+                    toolCalls[existingIndex].function = {};
+                  }
+                  // Accumulate name
+                  if (tc.function.name) {
+                    toolCalls[existingIndex].function.name = tc.function.name;
+                  }
+                  // Accumulate arguments as string (streaming comes in parts)
+                  if (tc.function.arguments) {
+                    toolCalls[existingIndex].function.arguments = 
+                      (toolCalls[existingIndex].function.arguments || '') + tc.function.arguments;
+                  }
+                }
+                // Add id if provided
+                if (tc.id) {
+                  toolCalls[existingIndex].id = tc.id;
+                }
+                // Ensure type is set
+                if (!toolCalls[existingIndex].type) {
+                  toolCalls[existingIndex].type = "function";
+                }
+              } else {
+                // Create new tool call
+                toolCalls.push({
+                  type: "function",
+                  index: tc.index,
+                  id: tc.id || generateToolCallId(),
+                  function: tc.function || {}
+                });
+              }
+            });
+          }
+        });
+
+        // Finalize the message
+        const finalMessage = {
+          role: "assistant",
+          content: accumulatedContent,
+          ...(toolCalls && { tool_calls: toolCalls })
+        };
+
+        // Detect invalid content: { "": {} }
+        let isEmptyKeyEmptyObject = false;
+        try {
+          const raw = typeof finalMessage.content === 'string' ? finalMessage.content.trim() : '';
+          if (raw.startsWith('{') && raw.endsWith('}')) {
+            const obj = JSON.parse(raw);
+            if (obj && typeof obj === 'object') {
+              const keys = Object.keys(obj);
+              if (keys.length === 1 && keys[0] === '' && obj[''] && typeof obj[''] === 'object' && Object.keys(obj['']).length === 0) {
+                isEmptyKeyEmptyObject = true;
+              }
+            }
+          }
+        } catch (_) {}
+
+        if (isEmptyKeyEmptyObject && !usedEmptyJsonRetryRef.current) {
+          usedEmptyJsonRetryRef.current = true;
+          const retryInstruction = locale === 'ru'
+            ? 'Предыдущий ответ содержал неверный JSON вида {"": {}}. Сформируй корректный ответ: либо понятный текст для пользователя, либо корректные tool_calls.'
+            : (locale === 'zh'
+              ? '上一次回复包含无效的 JSON（{"": {}}）。请生成正确的回复：要么是用户可读的文本，要么是标准的 tool_calls。'
+              : 'Previous reply contained invalid JSON of the form {"": {}}. Generate a correct reply: either a user-facing message or proper tool_calls.');
+          const retryMsg = { role: 'system', content: retryInstruction };
+          conversationHistoryRef.current.push(retryMsg);
+          continue; // Retry with the instruction
+        }
+
+        // Parse the message to handle tool calls properly
+        const parsed = parseAssistantResponse(finalMessage);
+
+        // Add to conversation history
+        conversationHistoryRef.current.push(finalMessage);
+
+        // Process tool calls first
+        if (parsed.toolCallsJson?.length) {
+          // Execute tools
+          const toolResponses = await handleToolCalls(parsed.toolCallsJson);
+
+          // Check response count
+          if (toolResponses.length !== parsed.toolCallsJson.length) {
+            // Force responses for each call
+            const forcedResponses = parsed.toolCallsJson.map((call, index) => {
+              if (index < toolResponses.length) {
+                return toolResponses[index];
+              }
+              return {
+                role: "tool",
+                tool_call_id: call.id,
+                content: JSON.stringify({ error: currentLocale.toolResponseError })
+              };
+            });
+
+            // Add forced responses
+            conversationHistoryRef.current.push(...forcedResponses);
+          } else {
+            // Add tool responses to history
+            conversationHistoryRef.current.push(...toolResponses);
+          }
+
+          // Show tool calls in UI (for user feedback)
+          const uiToolCalls = parsed.toolCallsJson.map(tc => ({
+            type: "function",
+            function: { name: tc.name }
+          }));
+          setMessages(prev => [...prev, {
+            role: "assistant",
+            tool_calls: uiToolCalls
+          }]);
+
+          // Continue loop to let model use tool results
+          continue;
+        } else {
+          // No tool calls - add displayable content to UI
+          if (parsed.displayContent.trim()) {
+            setMessages(prev => [...prev, {
+              role: "assistant",
+              content: parsed.displayContent
+            }]);
+            // Optionally validate the assistant display content
+            await validateAssistantContent(parsed.displayContent);
+          }
+          // If model returned gpt-oss control tags without parsed tool calls, request conversion once
+          const contentStr = typeof finalMessage.content === 'string' ? finalMessage.content : '';
+          const hasControlTags = /<\|constrain\|>|<\|message\|>|<\|channel\|>/i.test(contentStr);
+          if (hasControlTags && !usedControlTagRetryRef.current) {
+            usedControlTagRetryRef.current = true;
+            const convertInstruction = locale === 'ru'
+              ? 'Преобразуй свой предыдущий ответ в корректный формат tool_calls OpenAI без <|...|> тегов. Верни только tool_calls.'
+              : (locale === 'zh'
+                ? '将你之前的回复转换为没有 <|...|> 标签的标准 OpenAI tool_calls 格式。只返回 tool_calls。'
+                : 'Convert your previous reply into proper OpenAI tool_calls format without <|...|> tags. Return tool_calls only.');
+            const convertMsg = { role: 'system', content: convertInstruction };
+            conversationHistoryRef.current.push(convertMsg);
+            continue; // Retry with the instruction
+          }
+          
+          // No tool calls. If there is no displayable content either, ask model to formulate a user-facing question once.
+          if (!parsed.displayContent || !parsed.displayContent.trim()) {
+            if (!usedFollowUpRef.current) {
+              usedFollowUpRef.current = true;
+              const followupInstruction = locale === 'ru'
+                ? 'Сформулируй краткий, конкретный вопрос пользователю о недостающих данных/доступах, необходимых для продолжения. Без тегов <think> и без кода. Одна короткая фраза.'
+                : 'Write a brief, specific question to the user asking for the exact missing info or access required to proceed. No <think> tags, no code. One concise sentence.';
+
+              const followupMsg = { role: 'system', content: followupInstruction };
+              conversationHistoryRef.current.push(followupMsg);
+              continue; // Retry with the instruction
+            }
+          }
+          break;
+        }
+      }
+
+      if (loopCount >= MAX_LOOPS) {
+        throw new Error(currentLocale.loopLimitReached);
+      }
+
+    } catch (err) {
+      setError(err.message);
+
+      const errorMsg = {
+        role: "assistant",
+        content: currentLocale.errorMessage.replace('{message}', err.message)
+      };
+
+      setMessages(prev => [...prev, errorMsg]);
+      conversationHistoryRef.current.push(errorMsg);
+    } finally {
+      setIsLoading(false);
+      setIsStreaming(false);
+      setStreamingMessage(null);
+      isProcessingRef.current = false;
+    }
+  }, [isLoading, callOpenAIStream, handleToolCalls, currentLocale, locale, validateAssistantContent]);
+
   return {
     messages,
     isLoading,
     error,
     sendMessage,
+    sendMessageStream,
+    isStreaming,
+    streamingMessage,
+    isExecutingTools,
     clearChat
   };
 };

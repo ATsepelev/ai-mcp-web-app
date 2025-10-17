@@ -10,7 +10,6 @@ let serverInstance = null;
 export const useMCPServer = (tools = []) => {
   useEffect(() => {
     if (!serverInstance) {
-      console.log('[MCP] Initializing server...');
       serverInstance = MCP.createServer();
 
       // Register tools
@@ -22,8 +21,6 @@ export const useMCPServer = (tools = []) => {
           handler: tool.handler
         });
       });
-
-      console.log('[MCP] Server initialized with', tools.length, 'tools');
     }
 
     return () => {

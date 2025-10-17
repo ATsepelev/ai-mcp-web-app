@@ -5,7 +5,7 @@ export default {
   clearChat: "Очистить чат",
   collapseChat: "Свернуть чат",
   send: "Отправить",
-  thinking: "AI думает...",
+  thinking: "думает...",
   error: "Ошибка",
   greetingTitle: "🤖 AI Помощник:",
   user: "Вы",

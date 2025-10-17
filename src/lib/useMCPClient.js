@@ -46,24 +46,10 @@ export const useMCPClient = (options = {}) => {
     // Process mcpServers object
     Object.entries(mcpServers).forEach(([serverId, config]) => {
       if (config && typeof config === 'object') {
-        // Validate server ID format
-        if (!/^[a-zA-Z0-9-_]+$/.test(serverId)) {
-          console.warn(`[useMCPClient] Invalid server ID '${serverId}'. Use alphanumeric characters, dashes, and underscores only.`);
-        }
-        
-        // Validate transport type
-        if (config.type && !['ws', 'sse', 'http'].includes(config.type)) {
-          console.warn(`[useMCPClient] Invalid transport type '${config.type}' for server '${serverId}'. Use 'ws', 'sse', or 'http'.`);
-        }
-        
-        // Validate URL
-        if (!config.url || typeof config.url !== 'string') {
-          console.warn(`[useMCPClient] Missing or invalid URL for server '${serverId}'.`);
-        }
         
         const processedConfig = {
           id: serverId,
-          transport: config.type === 'ws' ? 'ws' : 'sse',
+          transport: config.type === 'ws' ? 'ws' : 'sse', // accepts 'http-stream', 'sse', 'http'
           url: substituteEnvVars(config.url, envVars),
           headers: config.headers ? Object.fromEntries(
             Object.entries(config.headers).map(([key, value]) => [
@@ -77,14 +63,11 @@ export const useMCPClient = (options = {}) => {
           timeoutMs: config.timeoutMs
         };
         servers.push(processedConfig);
-      } else {
-        console.warn(`[useMCPClient] Invalid configuration for server '${serverId}'. Expected object.`);
       }
     });
 
     // Add externalServers for backward compatibility
     if (Array.isArray(externalServers) && externalServers.length > 0) {
-      console.warn('[useMCPClient] externalServers array is deprecated. Use mcpServers object instead.');
       servers.push(...externalServers);
     }
 
@@ -121,7 +104,6 @@ export const useMCPClient = (options = {}) => {
             const extTools = await ec.loadTools();
             return { id: srv.id, client: ec, tools: extTools };
           } catch (e) {
-            console.error(`[MCP] External server '${srv.id}' failed to init:`, e);
             return { id: srv.id, client: null, tools: [], error: e };
           }
         });
@@ -142,7 +124,7 @@ export const useMCPClient = (options = {}) => {
               const name = t.name || t.tool || t.id;
               const description = t.description || t.title || '';
               const parameters = t.parameters || t.inputSchema || {};
-              mergedTools.push({ name, description, parameters, source: res.id, qualifiedName: `${res.id}.${name}` });
+              mergedTools.push({ name, description, parameters, source: res.id, qualifiedName: `${res.id}_${name}` });
             }
           }
         }
@@ -150,10 +132,10 @@ export const useMCPClient = (options = {}) => {
         // Provide a facade client that routes calls
         const routedClient = {
           callTool: async (name, args) => {
-            // If qualified: id.tool
-            if (typeof name === 'string' && name.includes('.')) {
-              const [sid, ...rest] = name.split('.');
-              const tool = rest.join('.');
+            // If qualified: id_tool
+            if (typeof name === 'string' && name.includes('_')) {
+              const [sid, ...rest] = name.split('_');
+              const tool = rest.join('_');
               const ext = externalClients.get(sid);
               if (!ext) throw new Error(`Unknown external server '${sid}'`);
               return ext.callTool(tool, args);
@@ -170,10 +152,10 @@ export const useMCPClient = (options = {}) => {
               return ext.callTool(name, args);
             }
             if (internalHas && externalMatches.length >= 1) {
-              throw new Error(`Ambiguous tool '${name}'. Use qualified name like 'internal.${name}' or '<serverId>.${name}'.`);
+              throw new Error(`Ambiguous tool '${name}'. Use qualified name like 'internal_${name}' or '<serverId>_${name}'.`);
             }
             if (!internalHas && externalMatches.length > 1) {
-              throw new Error(`Ambiguous external tool '${name}'. Use qualified name '<serverId>.${name}'.`);
+              throw new Error(`Ambiguous external tool '${name}'. Use qualified name '<serverId>_${name}'.`);
             }
             throw new Error(`Tool '${name}' not found.`);
           }
@@ -181,31 +163,11 @@ export const useMCPClient = (options = {}) => {
 
         // Apply tool filtering
         const filteredTools = filterTools(mergedTools, allowedTools, blockedTools);
-        
-        // Validate and log warnings for tool filtering
-        if (allowedTools && !Array.isArray(allowedTools)) {
-          console.warn('[useMCPClient] allowedTools should be an array of tool names.');
-        }
-        if (blockedTools && !Array.isArray(blockedTools)) {
-          console.warn('[useMCPClient] blockedTools should be an array of tool names.');
-        }
-        if (allowedTools && blockedTools && allowedTools.length > 0 && blockedTools.length > 0) {
-          console.warn('[useMCPClient] Both allowedTools and blockedTools are specified. allowedTools takes priority.');
-        }
-
-        // Log effective tools after filtering
-        try {
-          const effectiveToolNames = filteredTools.map(t => t.qualifiedName);
-          console.log('[MCP] Effective tools available after filtering:', effectiveToolNames);
-        } catch (_) {}
 
         setTools(filteredTools.map(t => ({ name: t.qualifiedName, description: t.description, parameters: t.parameters })));
         setClient(routedClient);
         const anyExternalErrors = externalResults.some(r => r.error);
         setStatus(anyExternalErrors && externalResults.some(r => r.client) ? 'partial_connected' : 'connected');
-
-        console.log('[MCP] Internal tools:', internalTools);
-        console.log('[MCP] External tools merged:', mergedTools);
       } catch (error) {
         console.error('[MCP] Client initialization failed:', error);
         setStatus('error');
