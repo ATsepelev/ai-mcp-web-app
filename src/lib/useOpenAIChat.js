@@ -371,7 +371,7 @@ function parseAssistantResponse(assistantMsg) {
   };
 }
 
-export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000) => {
+export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000, maxToolLoops = 5) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -748,7 +748,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       usedFollowUpRef.current = false;
 
       let loopCount = 0;
-      const MAX_LOOPS = 5;
+      const MAX_LOOPS = maxToolLoops;
 
       // One-shot retry for control-tag responses
       const usedControlTagRetryRef = { current: false };
@@ -986,7 +986,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       usedFollowUpRef.current = false;
 
       let loopCount = 0;
-      const MAX_LOOPS = 5;
+      const MAX_LOOPS = maxToolLoops;
 
       // One-shot retry for control-tag responses
       const usedControlTagRetryRef = { current: false };

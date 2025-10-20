@@ -333,6 +333,7 @@ function App() {
   expandedWidth={350} // Widget width when expanded (number in pixels, "350px", or "50%" converted to 50vw)
   expandedHeight={400} // Widget height when expanded (number in pixels, "400px", or "80%" converted to 80vh)
   maxContextSize={32000} // Maximum context size in tokens (default: 32000)
+  maxToolLoops={5} // Maximum number of tool execution cycles (default: 5)
   validationOptions={null} // Assistant response validation options
   customLocales={{
     en: {
@@ -582,6 +583,14 @@ Available positions:
   - Hovering over excluded messages shows a tooltip explaining they won't be sent to the AI assistant
   - Token counting: Uses accurate tiktoken (cl100k_base) if installed, otherwise falls back to approximate counting (~3.5 chars per token)
   - **Note**: For accurate token counting, install `js-tiktoken` as an optional dependency: `npm install js-tiktoken` (~21MB). Without it, the widget uses approximate counting and is ~20MB smaller.
+
+#### Tool Execution Control
+- `maxToolLoops`: Maximum number of tool execution cycles per user message (default: 5)
+  - Controls how many times the AI assistant can call tools in a single conversation turn
+  - Prevents infinite loops and excessive API calls
+  - Each cycle: AI calls tools → tools execute → AI processes results → (repeat if needed)
+  - When limit is reached, the conversation ends with an error message
+  - Recommended range: 3-10 depending on task complexity
 
 #### Assistant Customization
 - `assistantName`: Name displayed for AI assistant messages (default: 'AI')

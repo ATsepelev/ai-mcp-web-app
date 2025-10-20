@@ -508,6 +508,8 @@ const ChatWidget = ({
                   expandedHeight = 400,
                   // Context size management
                   maxContextSize = 32000,
+                  // Tool execution control
+                  maxToolLoops = 5,
                   // Theme customization
                   theme = {}
                     }) => {
@@ -603,7 +605,8 @@ const ChatWidget = ({
     locale,
     validationOptions,
     toolsMode,
-    maxContextSize
+    maxContextSize,
+    maxToolLoops
   );
 
 
