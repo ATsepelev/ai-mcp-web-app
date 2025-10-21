@@ -753,7 +753,8 @@ src/
 │   ├── mcp_core.js               # MCP protocol implementation
 │   ├── useMCPClient.js           # React hook for MCP client
 │   ├── useMCPServer.js           # React hook for MCP server
-│   └── useOpenAIChat.js          # Chat logic and OpenAI integration
+│   ├── useOpenAIChat.js          # Chat logic and OpenAI integration
+│   └── voiceInput.js             # Voice recognition module (new in v1.4.0)
 └── examples/                      # Example implementations (not included in build)
 ```
 
@@ -782,6 +783,10 @@ replace({
 ### Key Components
 - **ChatWidget**: Main UI component
 - **useOpenAIChat**: Chat logic and message handling
+- **voiceInput**: Speech recognition module (new in v1.4.0)
+  - Isolated voice recognition logic with clean API
+  - Prevents duplicate message delivery
+  - Handles all Speech Recognition API edge cases
 - **MCP Core**: Protocol implementation for tool communication
 - **MCP Tools**: Built-in DOM manipulation tools
 - **useMCPClient/Server**: React hooks for MCP integration

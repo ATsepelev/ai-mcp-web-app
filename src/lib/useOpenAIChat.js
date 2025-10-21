@@ -6,13 +6,16 @@ const generateToolCallId = () => `toolcall_${Date.now()}_${Math.random().toStrin
 
 // Try to import tiktoken (optional dependency)
 let encodingForModel = null;
-try {
-  const tiktoken = require('js-tiktoken');
-  encodingForModel = tiktoken.encodingForModel;
-} catch (e) {
-  // js-tiktoken not installed - will use approximate counting
-  console.info('js-tiktoken not installed. Using approximate token counting (4 chars ≈ 1 token). Install js-tiktoken for accurate counting.');
-}
+(async () => {
+  try {
+    const tiktoken = await import('js-tiktoken');
+    encodingForModel = tiktoken.encodingForModel;
+    console.info('✅ js-tiktoken loaded successfully. Using accurate token counting.');
+  } catch (e) {
+    // js-tiktoken not installed - will use approximate counting
+    console.info('⚠️ js-tiktoken not installed. Using approximate token counting (4 chars ≈ 1 token). Install js-tiktoken for accurate counting.');
+  }
+})();
 
 // Initialize tokenizer (cl100k_base encoding used by gpt-4, gpt-3.5-turbo)
 let tokenizer = null;
@@ -371,7 +374,7 @@ function parseAssistantResponse(assistantMsg) {
   };
 }
 
-export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000, maxToolLoops = 5) => {
+export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000, maxToolLoops = 5, systemPromptAddition = null, temperature = 0.5) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -386,15 +389,24 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
   // toolsMode: 'api' = tools passed via API parameter only (standard)
   // toolsMode: 'prompt' = tools passed via API parameter AND described in system prompt (legacy)
   const systemPrompt = useMemo(() => {
+    let basePrompt;
     if (toolsMode === 'prompt') {
       const toolsList = (actualToolsSchema || [])
         .map(t => `• ${t.function.name}: ${t.function.description}`)
         .join('\n');
-      return (currentLocale.systemPromptWithTools || currentLocale.systemPrompt)
+      basePrompt = (currentLocale.systemPromptWithTools || currentLocale.systemPrompt)
         .replace('{toolsList}', toolsList);
+    } else {
+      basePrompt = currentLocale.systemPrompt;
     }
-    return currentLocale.systemPrompt;
-  }, [currentLocale, toolsMode, actualToolsSchema]);
+    
+    // Append custom system prompt addition if provided
+    if (systemPromptAddition && typeof systemPromptAddition === 'string' && systemPromptAddition.trim()) {
+      return `${basePrompt}\n\n${systemPromptAddition.trim()}`;
+    }
+    
+    return basePrompt;
+  }, [currentLocale, toolsMode, actualToolsSchema, systemPromptAddition]);
 
 
   const conversationHistoryRef = useRef([{ role: "system", content: systemPrompt }]);
@@ -513,7 +525,8 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
 
     const requestBody = {
       model: actualModelName,
-      messages: history
+      messages: history,
+      temperature: temperature
     };
 
     // Always include tools in API request when available
@@ -579,7 +592,8 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     const requestBody = {
       model: actualModelName,
       messages: history,
-      stream: true
+      stream: true,
+      temperature: temperature
     };
 
     // Always include tools in API request when available

@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2025-10-21
+
+### Added
+- **Voice Input Module**: Extracted voice recognition logic into separate `voiceInput.js` module
+  - New `createVoiceRecognition()` function for encapsulated voice input management
+  - Clean API: `start()`, `stop()`, `isSupported()`, `cleanup()`
+  - Improved code organization and maintainability
+
+### Fixed
+- **Voice Input Duplication Bug**: Fixed issue where spoken words were being duplicated
+  - Root cause: Speech Recognition API returns cumulative results, old code was accumulating duplicates
+  - Solution: Buffer is now rebuilt from scratch on each result event instead of appending
+  - Added `finalDelivered` flag to prevent double delivery in `onresult` and `onend` handlers
+  - Improved transcript delivery logic to handle all edge cases properly
+
+### Changed
+- Refactored `ChatWidget.js` voice recognition initialization (~95 lines reduced to ~40 lines)
+- Simplified `toggleVoiceRecording()` function (~30 lines reduced to ~15 lines)
+- Removed unused internal refs: `isStartingRef`, `hasStartedRef`, `hasGotResultRef`, `hasRetriedStartRef`
+- Voice recognition state management now handled by dedicated module
+
+### Technical
+- Better separation of concerns: voice logic isolated from UI component
+- Enhanced error handling in voice recognition module
+- Cleaner component lifecycle management
+- No breaking changes - fully backward compatible
+
 ## [1.3.2] - 2025-10-17
 
 ### Changed

@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState, useMemo} from 'react';
 import { useMCPClient } from '../useMCPClient';
 import {useOpenAIChat} from '../useOpenAIChat';
+import { createVoiceRecognition } from '../voiceInput';
 import defaultLocales from './locales';
 import styles from './ChatWidget.module.css';
 
@@ -511,7 +512,11 @@ const ChatWidget = ({
                   // Tool execution control
                   maxToolLoops = 5,
                   // Theme customization
-                  theme = {}
+                  theme = {},
+                  // System prompt customization
+                  systemPromptAddition = null,
+                  // LLM temperature control (0.0-2.0, recommended 0.4-0.6 for chat)
+                  temperature = 0.5
                     }) => {
   const [inputValue, setInputValue] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -526,10 +531,6 @@ const ChatWidget = ({
   const inputRef = useRef(null);
   const isExpandedRef = useRef(false);
   const latestSendMessageRef = useRef(null);
-  const isStartingRef = useRef(false);
-  const hasStartedRef = useRef(false);
-  const hasGotResultRef = useRef(false);
-  const hasRetriedStartRef = useRef(false);
   const lastMicActionAtRef = useRef(0);
   const wasAtBottomRef = useRef(true);
 
@@ -606,7 +607,9 @@ const ChatWidget = ({
     validationOptions,
     toolsMode,
     maxContextSize,
-    maxToolLoops
+    maxToolLoops,
+    systemPromptAddition,
+    temperature
   );
 
 
@@ -620,95 +623,38 @@ const ChatWidget = ({
   }, [sendMessage]);
 
   useEffect(() => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = locale === 'en' ? 'en-US' :
-                        locale === 'zh' ? 'zh-CN' : 'ru-RU';
+    // Handle transcript delivery
+    const handleTranscript = (transcript) => {
+      if (isExpandedRef.current) {
+        setInputValue(prev => prev + (prev ? ' ' : '') + transcript);
+      } else if (typeof latestSendMessageRef.current === 'function') {
+        latestSendMessageRef.current(transcript);
+      }
+    };
 
-      let buffer = '';
+    // Handle recognition errors
+    const handleError = (errorCode) => {
+      setRecognitionError(errorCode);
+    };
 
-      const deliverTranscript = () => {
-        const t = (buffer || '').trim();
-        if (!t) return; // guard empty transcript
-        if (isExpandedRef.current) {
-          setInputValue(prev => prev + (prev ? ' ' : '') + t);
-        } else if (typeof latestSendMessageRef.current === 'function') {
-          latestSendMessageRef.current(t);
-        }
-        buffer = '';
-      };
+    // Handle recording state changes
+    const handleRecordingChange = (isRecording) => {
+      setIsRecording(isRecording);
+    };
 
-      recognition.onstart = () => {
-        setRecognitionError(null);
-        isStartingRef.current = false;
-        hasStartedRef.current = true;
-        setIsRecording(true);
-      };
+    // Create voice recognition instance
+    const voiceRecognition = createVoiceRecognition(
+      locale,
+      handleTranscript,
+      handleError,
+      handleRecordingChange
+    );
 
-      recognition.onresult = (event) => {
-        hasGotResultRef.current = true;
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const res = event.results[i];
-          if (res[0] && res[0].transcript) {
-            buffer += res[0].transcript;
-            if (res.isFinal) {
-              deliverTranscript();
-            }
-          }
-        }
-      };
-
-      recognition.onend = () => {
-        // If ended without final result, still attempt to deliver what we have
-        deliverTranscript();
-        // If Chrome ended immediately before actually starting, retry once
-        if (!hasStartedRef.current && !hasGotResultRef.current && !hasRetriedStartRef.current) {
-          hasRetriedStartRef.current = true;
-          try {
-            recognition.start();
-            isStartingRef.current = true;
-            return;
-          } catch (e) {
-            // fall through to reset state
-          }
-        }
-        setIsRecording(false);
-        isStartingRef.current = false;
-      };
-
-      recognition.onerror = (event) => {
-        // Suppress noisy 'aborted' errors from rapid toggling
-        if (event && event.error === 'aborted') {
-          setIsRecording(false);
-          return;
-        }
-        setRecognitionError(event?.error || 'unknown');
-        setIsRecording(false);
-      };
-
-      recognition.onnomatch = () => {
-        setRecognitionError('no-speech');
-      };
-
-      recognition.onspeechend = () => {
-        try { recognition.stop(); } catch (e) {}
-      };
-
-      recognition.onaudioend = () => {
-        // no-op, onend will handle delivery/state
-      };
-
-      recognitionRef.current = recognition;
-    } else {
-      setRecognitionError('not_supported');
-    }
+    recognitionRef.current = voiceRecognition;
 
     return () => {
       if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch (e) {}
+        recognitionRef.current.cleanup();
       }
       if (tooltipTimeoutRef.current) {
         clearTimeout(tooltipTimeoutRef.current);
@@ -751,7 +697,6 @@ const ChatWidget = ({
     setIsExpanded(!isExpanded);
     if (isRecording && recognitionRef.current) {
       recognitionRef.current.stop();
-      setIsRecording(false);
     }
   };
 
@@ -771,7 +716,7 @@ const ChatWidget = ({
   const toggleVoiceRecording = () => {
     if (showComponents === 'chat') return;
 
-    if (!recognitionRef.current) {
+    if (!recognitionRef.current || !recognitionRef.current.isSupported()) {
       showTemporaryTooltip(currentLocale.voiceNotSupported);
       return;
     }
@@ -781,27 +726,11 @@ const ChatWidget = ({
 
     if (isRecording) {
       recognitionRef.current.stop();
-      setIsRecording(false);
     } else {
       try {
-        // Guard against overlapping starts
-        if (isStartingRef.current) return;
-        isStartingRef.current = true;
-        hasStartedRef.current = false;
-        hasGotResultRef.current = false;
-        setRecognitionError(null);
-        hasRetriedStartRef.current = false;
-        // Start immediately; if Chrome ends immediately we auto-retry in onend
-        try {
-          recognitionRef.current.start();
-        } catch (err) {
-          isStartingRef.current = false;
-          const code = (err && err.name) || 'start_failed';
-          setRecognitionError(code);
-          showTemporaryTooltip(getErrorMessage(code));
-        }
-      } catch (error) {
-        const code = (error && error.name) || 'start_failed';
+        recognitionRef.current.start();
+      } catch (err) {
+        const code = (err && err.name) || 'start_failed';
         setRecognitionError(code);
         showTemporaryTooltip(getErrorMessage(code));
       }
@@ -968,7 +897,9 @@ const ChatWidget = ({
       getErrorMessage,
       expandedWidth,
       expandedHeight,
-      theme: mergedTheme
+      theme: mergedTheme,
+      systemPromptAddition,
+      temperature
     };
 
     return React.cloneElement(customComponent, customProps);

@@ -50,7 +50,8 @@ module.exports = [
       file: 'dist/index.js',
       format: 'cjs',
       exports: 'named',
-      sourcemap: true
+      sourcemap: true,
+      inlineDynamicImports: true
     },
     plugins: [
       postcss({
@@ -71,7 +72,8 @@ module.exports = [
       file: 'dist/index.esm.js',
       format: 'es',
       exports: 'named',
-      sourcemap: true
+      sourcemap: true,
+      inlineDynamicImports: true
     },
     plugins: [
       postcss({
@@ -100,7 +102,8 @@ module.exports = [
         'react/jsx-dev-runtime': 'jsxRuntime'
       },
       exports: 'named',
-      sourcemap: true
+      sourcemap: true,
+      inlineDynamicImports: true
     },
     plugins: [
       postcss({
