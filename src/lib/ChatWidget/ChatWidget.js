@@ -92,6 +92,47 @@ const cleanAssistantContent = (content) => {
   // Remove standalone JSON blocks that look like tool calls (but not inline JSON)
   cleanedContent = cleanedContent.replace(/^\s*\{[\s\S]*?\}\s*$/gm, '');
   
+  // Remove empty markdown code blocks (multiple passes for cases with multiple blocks)
+  for (let i = 0; i < 3; i++) {
+    // Remove completely empty blocks
+    cleanedContent = cleanedContent.replace(/```[a-zA-Z]*\s*```/g, '');
+    // Remove any remaining empty code fences with newlines
+    cleanedContent = cleanedContent.replace(/```\s*\n\s*\n\s*```/g, '');
+    cleanedContent = cleanedContent.replace(/```\s*\n\s*```/g, '');
+    // Remove blocks with only language identifier (e.g., ```json\n```)
+    cleanedContent = cleanedContent.replace(/```[a-zA-Z]+\s*\n\s*```/g, '');
+    // Remove blocks with only closing brace (artifacts from tool call extraction)
+    cleanedContent = cleanedContent.replace(/```[a-zA-Z]*\s*\n\s*\}\s*```/g, '');
+    cleanedContent = cleanedContent.replace(/```[a-zA-Z]*\s*\n\s*\}\s*\n\s*```/g, '');
+    cleanedContent = cleanedContent.replace(/```[a-zA-Z]*\s*\n\s*[\{\}]\s*```/g, '');
+    // Remove code blocks that contain only whitespace and/or single braces
+    cleanedContent = cleanedContent.replace(/```[a-zA-Z]*\s*\n[\s\{\}]*\n\s*```/g, '');
+    // Universal cleanup: remove any block that has nothing meaningful inside
+    cleanedContent = cleanedContent.replace(/```[a-zA-Z]*[\s\n]*```/g, '');
+  }
+  
+  // Final aggressive cleanup: remove ANY code fence block that only contains whitespace
+  // This catches all edge cases like ```json\n\n```, ```\n  \n```, etc.
+  cleanedContent = cleanedContent.replace(/```[\w]*[\s\S]*?```/g, (match) => {
+    // Extract content between ``` markers
+    const content = match.replace(/^```[\w]*\s*/, '').replace(/\s*```$/, '');
+    // If content is only whitespace or braces, remove entire block
+    if (!content.trim() || /^[\s\{\}]*$/.test(content)) {
+      return '';
+    }
+    // Otherwise keep the block
+    return match;
+  });
+  
+  // Remove orphaned closing braces that may remain after tool call extraction
+  cleanedContent = cleanedContent.replace(/^\s*[\{\}]\s*$/gm, '');
+  // Remove lines that contain only "json" keyword (artifacts from markdown blocks)
+  cleanedContent = cleanedContent.replace(/^\s*json\s*$/gm, '');
+  
+  // Clean up multiple consecutive newlines left after block removal (multiple passes)
+  cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n');
+  cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n'); // Second pass
+  
   cleanedContent = cleanedContent.replace(/^\s*\n|\n\s*$/g, '');
   return cleanedContent;
 };
@@ -433,6 +474,13 @@ const renderMarkdown = (content, styles = {}) => {
     const idx = parseInt(idxStr, 10);
     const block = codeBlocks[idx];
     if (!block) return '';
+    
+    // Skip rendering if code block is empty or contains only whitespace/braces
+    const trimmedCode = block.code.trim();
+    if (!trimmedCode || /^[\s\{\}]*$/.test(trimmedCode)) {
+      return '';
+    }
+    
     const header = escapeHtml(block.language);
     return (
       `<div class="${styles['code-block'] || 'code-block'}">` +
@@ -447,14 +495,20 @@ const renderMarkdown = (content, styles = {}) => {
 
 /**
  * Check if display content is empty
+ * Expects already cleaned content (no need to clean again)
  */
 const isDisplayContentEmpty = (content) => {
   if (!content || typeof content !== 'string') return true;
-  const cleaned = cleanAssistantContent(content);
-  if (!cleaned || cleaned.trim() === '') return true;
+  const trimmed = content.trim();
+  if (!trimmed) return true;
 
-  const textOnly = cleaned.replace(/<[^>]*>/g, '').trim();
-  return !textOnly || textOnly === '';
+  // Remove HTML tags to check if there's actual text content
+  const textOnly = trimmed.replace(/<[^>]*>/g, '').trim();
+  
+  // Also remove common whitespace characters and check if anything remains
+  const meaningful = textOnly.replace(/[\s\u00A0\u200B\u200C\u200D\uFEFF]/g, '');
+  
+  return !meaningful || meaningful === '';
 };
 
 /**
@@ -524,7 +578,10 @@ const ChatWidget = ({
   const [recognitionError, setRecognitionError] = useState(null);
   const [showTooltip, setShowTooltip] = useState(false);
   const [tooltipMessage, setTooltipMessage] = useState('');
+  const [showNotification, setShowNotification] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState('');
   const tooltipTimeoutRef = useRef(null);
+  const notificationTimeoutRef = useRef(null);
   const recognitionRef = useRef(null);
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
@@ -533,6 +590,7 @@ const ChatWidget = ({
   const latestSendMessageRef = useRef(null);
   const lastMicActionAtRef = useRef(0);
   const wasAtBottomRef = useRef(true);
+  const lastProcessedMessageIndexRef = useRef(-1);
 
   // Merge theme with defaults
   const mergedTheme = useMemo(() => ({
@@ -713,6 +771,33 @@ const ChatWidget = ({
     }, 2000);
   };
 
+  const showNotificationPopup = (message) => {
+    if (!message || isDisplayContentEmpty(message)) return;
+    
+    setNotificationMessage(message);
+    setShowNotification(true);
+    
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+    }
+    
+    notificationTimeoutRef.current = setTimeout(() => {
+      setShowNotification(false);
+    }, 8000); // Auto-dismiss after 8 seconds
+  };
+
+  const dismissNotification = () => {
+    setShowNotification(false);
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+    }
+  };
+
+  const handleNotificationClick = () => {
+    dismissNotification();
+    setIsExpanded(true);
+  };
+
   const toggleVoiceRecording = () => {
     if (showComponents === 'chat') return;
 
@@ -813,8 +898,45 @@ const ChatWidget = ({
       if (tooltipTimeoutRef.current) {
         clearTimeout(tooltipTimeoutRef.current);
       }
+      if (notificationTimeoutRef.current) {
+        clearTimeout(notificationTimeoutRef.current);
+      }
     };
   }, []);
+
+  // Detect new assistant messages and show notification when chat is collapsed
+  useEffect(() => {
+    if (isExpanded || !messages || messages.length === 0) {
+      return;
+    }
+
+    // Find the last assistant message
+    let lastAssistantMessageIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && messages[i].content) {
+        const cleaned = cleanAssistantContent(messages[i].content);
+        if (cleaned && !isDisplayContentEmpty(cleaned)) {
+          lastAssistantMessageIndex = i;
+          break;
+        }
+      }
+    }
+
+    // If we found a new assistant message, show notification
+    if (lastAssistantMessageIndex > lastProcessedMessageIndexRef.current && lastAssistantMessageIndex >= 0) {
+      lastProcessedMessageIndexRef.current = lastAssistantMessageIndex;
+      const message = messages[lastAssistantMessageIndex];
+      const cleanedContent = cleanAssistantContent(message.content);
+      showNotificationPopup(cleanedContent);
+    }
+  }, [messages, isExpanded]);
+
+  // Clear notification when chat is expanded
+  useEffect(() => {
+    if (isExpanded) {
+      dismissNotification();
+    }
+  }, [isExpanded]);
 
   const getPositionStyles = () => {
     const baseStyles = {
@@ -851,6 +973,37 @@ const ChatWidget = ({
       case 'bottom-right':
       default:
         return {...baseStyles, bottom: '90px', right: '20px'};
+    }
+  };
+
+  const getNotificationPositionStyles = () => {
+    const baseStyles = {
+      position: 'fixed',
+      zIndex: 1002
+    };
+
+    // Calculate vertical offset based on buttons visibility
+    const buttonHeight = 50;
+    const buttonGap = 10;
+    const margin = 20;
+    
+    let offset = margin + buttonHeight; // One button
+    if (showChat && showVoice) {
+      offset = margin + buttonHeight + buttonGap + buttonHeight; // Two buttons stacked
+    }
+    
+    offset += 10; // Additional gap between buttons and notification
+
+    switch (position) {
+      case 'top-left':
+        return {...baseStyles, top: `${offset}px`, left: '20px'};
+      case 'top-right':
+        return {...baseStyles, top: `${offset}px`, right: '20px'};
+      case 'bottom-left':
+        return {...baseStyles, bottom: `${offset}px`, left: '20px'};
+      case 'bottom-right':
+      default:
+        return {...baseStyles, bottom: `${offset}px`, right: '20px'};
     }
   };
 
@@ -922,6 +1075,46 @@ const ChatWidget = ({
         >
           <div className={styles['tooltip-content']}>
             {tooltipMessage}
+          </div>
+        </div>
+      )}
+
+      {showNotification && !isExpanded && notificationMessage && (
+        <div
+          className={styles['notification-popup']}
+          style={{
+            ...getNotificationPositionStyles(),
+            background: mergedTheme.assistantMessageBackground,
+            border: `1px solid ${mergedTheme.assistantMessageBorder}`,
+            color: mergedTheme.assistantMessageColor
+          }}
+        >
+          <div className={styles['notification-header']}>
+            <strong>{assistantName || 'AI'}</strong>
+            <button
+              className={styles['notification-close']}
+              onClick={dismissNotification}
+              title={currentLocale.close || 'Close'}
+              style={{
+                background: mergedTheme.headerButtonBackground,
+                color: mergedTheme.headerButtonColor
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <div 
+            className={styles['notification-content']}
+            onClick={handleNotificationClick}
+          >
+            <div className={styles['markdown-body']} dangerouslySetInnerHTML={{
+              __html: renderMarkdown(
+                notificationMessage.length > 150 
+                  ? notificationMessage.substring(0, 150) + '...' 
+                  : notificationMessage,
+                styles
+              )
+            }} />
           </div>
         </div>
       )}
@@ -1054,27 +1247,7 @@ const ChatWidget = ({
               )}
 
               {messages.map((msg, index) => {
-                const shouldDisplayMessage = () => {
-                  // Hide tool role messages entirely
-                  if (msg.role === 'tool') return false;
-
-                  // Suppress listing of tool calls as separate message; status bubble will reflect state
-                  if (msg.tool_calls && msg.tool_calls.length > 0) return false;
-
-                  if (msg.role === 'assistant') {
-                    if (msg.content && !isDisplayContentEmpty(msg.content)) {
-                      return true;
-                    }
-                    return false;
-                  }
-
-                  return !!msg.content;
-                };
-
-                if (!shouldDisplayMessage()) {
-                  return null;
-                }
-
+                // Clean content first for assistant messages
                 let displayContent = msg.content;
                 if (msg.role === 'assistant') {
                   // During tool calls, suppress assistant content; status bubble shows action
@@ -1085,6 +1258,33 @@ const ChatWidget = ({
                   }
                 } else if (msg.content) {
                   displayContent = cleanAssistantContent(msg.content);
+                }
+
+                const shouldDisplayMessage = () => {
+                  // Hide tool role messages entirely
+                  if (msg.role === 'tool') return false;
+
+                  // Suppress listing of tool calls as separate message; status bubble will reflect state
+                  if (msg.tool_calls && msg.tool_calls.length > 0) return false;
+
+                  if (msg.role === 'assistant') {
+                    // Check if cleaned content is empty
+                    if (!displayContent || isDisplayContentEmpty(displayContent)) {
+                      return false;
+                    }
+                    // Double-check by rendering markdown and checking if result has text
+                    const rendered = renderMarkdown(displayContent, styles);
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = rendered;
+                    const textContent = tempDiv.textContent || tempDiv.innerText || '';
+                    return textContent.trim().length > 0;
+                  }
+
+                  return !!msg.content;
+                };
+
+                if (!shouldDisplayMessage()) {
+                  return null;
                 }
 
                 const isExcluded = msg.excludedFromContext === true;
@@ -1134,13 +1334,11 @@ const ChatWidget = ({
                             msg.role === 'assistant' ? (assistantName || 'AI') :
                               msg.role === 'tool' ? currentLocale.tool : msg.role}
                         </strong>:
-                        {displayContent ? (
+                        {displayContent && displayContent.trim() ? (
                           <div className={styles['markdown-body']} dangerouslySetInnerHTML={{
                             __html: renderMarkdown(displayContent, styles)
                           }} />
-                        ) : (
-                          <span></span>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   </div>

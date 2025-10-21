@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2025-10-21
+
+### Added
+- **Markdown Code Block Tool Calls**: Support for parsing tool calls from markdown JSON code blocks
+  - LLMs can now wrap tool calls in \`\`\`json blocks for better formatting
+  - Validates tool registration before execution
+  - Supports multiple tool calls in single response
+  - Automatic extraction and cleanup of markdown blocks
+
+### Fixed
+- **Empty JSON Blocks Display**: Fixed issue where empty JSON markdown blocks appeared in chat after tool execution
+  - Comprehensive 5-level cleanup system: parse → clean → render → validate → display
+  - Added validation in `renderMarkdown` to skip empty code blocks
+  - Improved `cleanAssistantContent` with aggressive empty block removal
+  - Multiple cleanup passes to handle edge cases with multiple tool calls
+  
+- **Empty Assistant Messages**: Fixed display of empty assistant messages after content cleanup
+  - Reordered logic to clean content before checking emptiness
+  - Added DOM-based validation to verify rendered content has actual text
+  - Enhanced `isDisplayContentEmpty` to detect invisible Unicode characters
+  - Messages with only whitespace/braces now properly hidden
+
+### Changed
+- **Enhanced System Prompts**: Updated for all locales (English, Russian, Chinese) with explicit tool call format instructions
+  - Clear examples of correct vs incorrect tool call format
+  - Support for both native OpenAI tool_calls and markdown-wrapped alternatives
+  - Emphasis that "name" field must contain tool name, not user data
+  - Better guidance for models without native tool_calls support
+
+### Technical
+- Improved tool call extraction with index-based removal for multiple blocks
+- Added Unicode whitespace detection (zero-width spaces, non-breaking spaces, etc.)
+- Optimized `isDisplayContentEmpty` to avoid double-cleaning content
+- Multi-pass cleanup regex patterns for complex edge cases
+- Better separation between content cleaning and validation logic
+
 ## [1.4.0] - 2025-10-21
 
 ### Added

@@ -221,7 +221,7 @@ const filterMessagesByContext = (messages, maxTokens) => {
 /**
  * Parses assistant response, supporting both formats
  */
-function parseAssistantResponse(assistantMsg) {
+function parseAssistantResponse(assistantMsg, availableTools = new Set()) {
   let thinkText = null;
   let toolCallsJson = null;
   let displayContent = "";
@@ -255,6 +255,99 @@ function parseAssistantResponse(assistantMsg) {
         thinkText = thinkMatch[1].trim();
         displayContent = displayContent.replace(thinkMatch[0], '').trim();
       }
+
+      // Parse tool calls from markdown code blocks
+      if (!toolCallsJson) {
+        const markdownBlockRegex = /```(?:json)?\s*\n([\s\S]*?)\n\s*```/g;
+        const toolCallsFromMarkdown = [];
+        const blocksToRemove = [];
+        
+        let match;
+        while ((match = markdownBlockRegex.exec(displayContent)) !== null) {
+          try {
+            const blockContent = match[1].trim();
+            const parsed = JSON.parse(blockContent);
+            
+            // Validate tool call structure and registration
+            if (
+              parsed &&
+              typeof parsed === 'object' &&
+              typeof parsed.name === 'string' &&
+              parsed.arguments !== undefined &&
+              availableTools.has(parsed.name)
+            ) {
+              // Valid tool call - add to list and mark block for removal
+              toolCallsFromMarkdown.push({
+                id: generateToolCallId(),
+                name: parsed.name,
+                arguments: parsed.arguments
+              });
+              // Store match with position for later removal
+              blocksToRemove.push({
+                text: match[0],
+                index: match.index
+              });
+            }
+            // If not a valid registered tool call, leave in content for display
+          } catch (e) {
+            // Not valid JSON, leave in content
+          }
+        }
+        
+        if (toolCallsFromMarkdown.length > 0) {
+          toolCallsJson = toolCallsFromMarkdown;
+          // Remove all marked blocks in reverse order (to preserve indices)
+          let contentWithoutToolBlocks = displayContent;
+          blocksToRemove.sort((a, b) => b.index - a.index);
+          for (const block of blocksToRemove) {
+            const before = contentWithoutToolBlocks.substring(0, block.index);
+            const after = contentWithoutToolBlocks.substring(block.index + block.text.length);
+            contentWithoutToolBlocks = before + after;
+          }
+          displayContent = contentWithoutToolBlocks.trim();
+        }
+      }
+      
+      // Clean up any remaining empty markdown code blocks (multiple passes for nested cases)
+      for (let i = 0; i < 3; i++) {
+        // Remove completely empty blocks
+        displayContent = displayContent.replace(/```[a-zA-Z]*\s*```/g, '');
+        displayContent = displayContent.replace(/```\s*\n\s*\n\s*```/g, '');
+        displayContent = displayContent.replace(/```\s*\n\s*```/g, '');
+        // Remove blocks with only language identifier (e.g., ```json\n```)
+        displayContent = displayContent.replace(/```[a-zA-Z]+\s*\n\s*```/g, '');
+        // Remove blocks with only closing brace (artifacts from tool call extraction)
+        displayContent = displayContent.replace(/```[a-zA-Z]*\s*\n\s*\}\s*```/g, '');
+        displayContent = displayContent.replace(/```[a-zA-Z]*\s*\n\s*\}\s*\n\s*```/g, '');
+        displayContent = displayContent.replace(/```[a-zA-Z]*\s*\n\s*[\{\}]\s*```/g, '');
+        // Remove code blocks that contain only whitespace and/or single braces
+        displayContent = displayContent.replace(/```[a-zA-Z]*\s*\n[\s\{\}]*\n\s*```/g, '');
+        // Universal cleanup: remove any block that has nothing meaningful inside
+        displayContent = displayContent.replace(/```[a-zA-Z]*[\s\n]*```/g, '');
+      }
+      
+      // Final aggressive cleanup: remove ANY code fence block that only contains whitespace
+      // This catches all edge cases like ```json\n\n```, ```\n  \n```, etc.
+      displayContent = displayContent.replace(/```[\w]*[\s\S]*?```/g, (match) => {
+        // Extract content between ``` markers
+        const content = match.replace(/^```[\w]*\s*/, '').replace(/\s*```$/, '');
+        // If content is only whitespace or braces, remove entire block
+        if (!content.trim() || /^[\s\{\}]*$/.test(content)) {
+          return '';
+        }
+        // Otherwise keep the block
+        return match;
+      });
+      
+      // Remove orphaned closing braces that may remain after tool call extraction
+      displayContent = displayContent.replace(/^\s*[\{\}]\s*$/gm, '');
+      // Remove lines that contain only "json" keyword (artifacts from markdown blocks)
+      displayContent = displayContent.replace(/^\s*json\s*$/gm, '');
+      
+      // Clean up multiple consecutive newlines left after block removal (multiple passes)
+      displayContent = displayContent.replace(/\n{3,}/g, '\n\n');
+      displayContent = displayContent.replace(/\n{3,}/g, '\n\n'); // Second pass
+      displayContent = displayContent.trim();
 
       // gpt-oss control tags formats:
       // 1) <|constrain|>func=functions.name ... <|message|>{json}
@@ -303,7 +396,7 @@ function parseAssistantResponse(assistantMsg) {
         }
       }
 
-      // Try to parse entire content as JSON array of tool calls
+      // Try to parse entire content as JSON array of tool calls or single object
       if (!toolCallsJson) {
         try {
           const trimmedContent = displayContent.trim();
@@ -327,6 +420,27 @@ function parseAssistantResponse(assistantMsg) {
                 displayContent = ''; // Clear content since it's all tool calls
               }
             }
+          } else if (trimmedContent.startsWith('{') && trimmedContent.endsWith('}')) {
+            // Try to parse as single JSON object (potential tool call)
+            const parsedJson = JSON.parse(trimmedContent);
+            
+            // Check if it's a tool call format with name and arguments
+            if (
+              parsedJson &&
+              typeof parsedJson === 'object' &&
+              typeof parsedJson.name === 'string' &&
+              parsedJson.arguments !== undefined &&
+              availableTools.has(parsedJson.name)
+            ) {
+              // Valid tool call
+              toolCallsJson = [{
+                id: generateToolCallId(),
+                name: parsedJson.name,
+                arguments: parsedJson.arguments
+              }];
+              displayContent = ''; // Clear content since it's a tool call
+            }
+            // If not a valid tool call, leave as display content
           }
         } catch (e) {
           // Not valid JSON, continue to bracketed format fallback
@@ -806,7 +920,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
           const retryRes = await callOpenAI(conversationHistoryRef.current);
           const retryAssistant = retryRes.choices?.[0]?.message || { role: 'assistant', content: '' };
           conversationHistoryRef.current.push(retryAssistant);
-          const retryParsed = parseAssistantResponse(retryAssistant);
+          const retryParsed = parseAssistantResponse(retryAssistant, availableTools);
           // If we obtained tool calls, process them and continue loop
           if (retryParsed.toolCallsJson?.length) {
             const toolResponses = await handleToolCalls(retryParsed.toolCallsJson);
@@ -832,7 +946,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         }
 
         // Parse response
-        const parsed = parseAssistantResponse(assistantMsg);
+        const parsed = parseAssistantResponse(assistantMsg, availableTools);
 
         // Add to history
         conversationHistoryRef.current.push(assistantMsg);
@@ -897,7 +1011,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
             const convertRes = await callOpenAI(conversationHistoryRef.current);
             const convertAssistant = convertRes.choices?.[0]?.message || { role: 'assistant', content: '' };
             conversationHistoryRef.current.push(convertAssistant);
-            const convParsed = parseAssistantResponse(convertAssistant);
+            const convParsed = parseAssistantResponse(convertAssistant, availableTools);
             if (convParsed.toolCallsJson?.length) {
               // Execute tools obtained from conversion
               const toolResponses = await handleToolCalls(convParsed.toolCallsJson);
@@ -933,7 +1047,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
               const followupRes = await callOpenAI(conversationHistoryRef.current);
               const followupAssistant = followupRes.choices?.[0]?.message || { role: 'assistant', content: '' };
               conversationHistoryRef.current.push(followupAssistant);
-              const followParsed = parseAssistantResponse(followupAssistant);
+              const followParsed = parseAssistantResponse(followupAssistant, availableTools);
               const followText = (followParsed.displayContent || '').trim();
               if (followText) {
                 setMessages(prev => [...prev, { role: 'assistant', content: followText }]);
@@ -1106,7 +1220,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         }
 
         // Parse the message to handle tool calls properly
-        const parsed = parseAssistantResponse(finalMessage);
+        const parsed = parseAssistantResponse(finalMessage, availableTools);
 
         // Add to conversation history
         conversationHistoryRef.current.push(finalMessage);

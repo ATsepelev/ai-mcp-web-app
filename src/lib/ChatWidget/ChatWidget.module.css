@@ -173,6 +173,100 @@
     100% { opacity: 1; transform: translateY(0); }
 }
 
+/* Notification popup */
+.notification-popup {
+    min-width: 250px;
+    max-width: 350px;
+    border-radius: 16px;
+    box-shadow:
+        0 12px 28px rgba(0,0,0,0.2),
+        0 6px 12px rgba(0,0,0,0.15),
+        0 2px 4px rgba(0,0,0,0.1);
+    animation: slideInNotification 0.3s ease-out;
+    pointer-events: auto;
+    overflow: hidden;
+}
+
+@keyframes slideInNotification {
+    0% {
+        opacity: 0;
+        transform: translateY(20px) scale(0.95);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.notification-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    background: linear-gradient(135deg, rgba(107, 180, 227, 0.08), rgba(74, 159, 227, 0.08));
+    border-bottom: 1px solid rgba(226, 232, 240, 0.5);
+}
+
+.notification-header strong {
+    font-size: 14px;
+    font-weight: 600;
+    color: inherit;
+}
+
+.notification-close {
+    background: linear-gradient(145deg, rgba(107, 180, 227, 0.2), rgba(74, 159, 227, 0.2));
+    border: none;
+    color: #4a5568;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    padding: 0;
+    line-height: 1;
+    box-shadow:
+        0 2px 4px rgba(0,0,0,0.08),
+        inset 0 1px 0 rgba(255,255,255,0.2);
+}
+
+.notification-close:hover {
+    background: linear-gradient(145deg, rgba(107, 180, 227, 0.35), rgba(74, 159, 227, 0.35));
+    transform: scale(1.1);
+    box-shadow:
+        0 3px 6px rgba(0,0,0,0.12),
+        inset 0 1px 0 rgba(255,255,255,0.3);
+}
+
+.notification-content {
+    padding: 12px 14px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1.5;
+    max-height: 300px;
+    overflow-y: auto;
+    transition: background 0.2s;
+}
+
+.notification-content:hover {
+    background: rgba(107, 180, 227, 0.03);
+}
+
+.notification-content .markdown-body {
+    font-size: 13px;
+}
+
+/* Responsive notification for mobile */
+@media (max-width: 480px) {
+    .notification-popup {
+        max-width: calc(100vw - 40px);
+        min-width: 200px;
+    }
+}
+
 /* Expanded state */
 .chat-expanded {
     position: relative;
