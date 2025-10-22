@@ -17,10 +17,12 @@ This release represents a complete overhaul of MCP client/server initialization,
   - Tools/resources from each server added progressively as they connect
   - 10-second timeout per server (configurable via `timeoutMs`)
   - Graceful degradation when some servers fail
+  
 - **Client Initialize Retry Logic**: Automatic retry with exponential backoff for race conditions
   - 3 retry attempts with 100ms → 200ms → 400ms delays
   - 5-second timeout per attempt
   - Handles server initialization race conditions gracefully
+  
 - **Full MCP Resources Support**: Complete implementation of MCP Resources specification (2025-06-18)
   - Static resources pre-loaded into system prompt
   - Dynamic resources exposed as tools for on-demand access
@@ -59,7 +61,7 @@ Simply update the package version - no code changes required:
 ```bash
 npm install ai-mcp-web-app@1.6.0
 ```
-
+  
 ## [1.5.11] - 2025-01-22
 
 ### Fixed

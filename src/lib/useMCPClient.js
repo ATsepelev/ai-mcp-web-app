@@ -102,7 +102,6 @@ export const useMCPClient = (options = {}) => {
     const initClient = async () => {
       try {
         setStatus('connecting');
-        
         const internalClient = MCP.createClient();
 
         // Initialize protocol
@@ -174,8 +173,7 @@ export const useMCPClient = (options = {}) => {
           
           const anyExternalErrors = externalResults.some(r => r.error);
           const anyConnected = externalResults.some(r => r.client);
-          const newStatus = anyExternalErrors && anyConnected ? 'partial_connected' : 'connected';
-          setStatus(newStatus);
+          setStatus(anyExternalErrors && anyConnected ? 'partial_connected' : 'connected');
         };
 
         // Initialize routed client immediately with internal tools
@@ -313,14 +311,13 @@ export const useMCPClient = (options = {}) => {
                 updateMergedState();
               }
             })().catch(() => {
-              // Silently catch any unhandled errors from the async IIFE
+              // Silently handle unhandled errors
             });
           });
           
           initializingRef.current = false;
         }
       } catch (error) {
-        console.error('[MCP] Client initialization failed:', error);
         setStatus('error');
         initializingRef.current = false;
       }
