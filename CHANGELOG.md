@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2025-01-22
+
+### Fixed
+- **Critical: Reconnection Timers Not Canceled**: Fixed reconnection attempts continuing after disconnect()
+  - Added `reconnectTimer` property to track scheduled reconnections
+  - Timers are now properly canceled in `disconnect()` method
+  - Prevents reconnection attempts from accumulating in background
+  - Fixes continuous reconnection attempts when typing in chat
+  - Both WebSocket and SSE clients now check `shouldReconnect` before scheduling timers
+
+### Technical
+- `MCPWebSocketClient` and `MCPSseClient` now store reconnect timer reference
+- Timers are cleared via `clearTimeout()` when `disconnect()` is called
+- Reconnection scheduling only occurs if `shouldReconnect` flag is true
+- Prevents orphaned timers from continuing to fire after client cleanup
+
 ## [1.5.1] - 2025-01-22
 
 ### Fixed

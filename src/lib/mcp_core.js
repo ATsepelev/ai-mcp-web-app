@@ -597,6 +597,7 @@ class MCPWebSocketClient extends MCPExternalBaseClient {
     this.ws = null;
     this.connecting = false;
     this.shouldReconnect = true;  // Control reconnection attempts
+    this.reconnectTimer = null;   // Store reconnect timer to cancel it
     this.backoffMs = 500;
     this.maxBackoffMs = 8000;
     this.queue = [];
@@ -606,12 +607,20 @@ class MCPWebSocketClient extends MCPExternalBaseClient {
 
   disconnect() {
     this.shouldReconnect = false;
+    
+    // Cancel pending reconnection timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
     if (this.ws) {
       try {
         this.ws.close();
       } catch (e) { /* no-op */ }
       this.ws = null;
     }
+    
     // Reject all pending requests
     for (const [id, pending] of this.pendingRequests.entries()) {
       if (pending && typeof pending.reject === 'function') {
@@ -663,16 +672,20 @@ class MCPWebSocketClient extends MCPExternalBaseClient {
       };
       this.ws.onclose = () => {
         this.connecting = false;
-        setTimeout(() => this._connect(), this.backoffMs);
-        this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+        if (this.shouldReconnect) {
+          this.reconnectTimer = setTimeout(() => this._connect(), this.backoffMs);
+          this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+        }
       };
       this.ws.onerror = () => {
         try { this.ws.close(); } catch (e) { /* no-op */ }
       };
     } catch (e) {
       this.connecting = false;
-      setTimeout(() => this._connect(), this.backoffMs);
-      this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+      if (this.shouldReconnect) {
+        this.reconnectTimer = setTimeout(() => this._connect(), this.backoffMs);
+        this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+      }
     }
   }
 
@@ -723,6 +736,7 @@ class MCPSseClient extends MCPExternalBaseClient {
     this.options = options;
     this.eventSource = null;
     this.shouldReconnect = true;  // Control reconnection attempts
+    this.reconnectTimer = null;   // Store reconnect timer to cancel it
     this.backoffMs = 1000;
     this.maxBackoffMs = 10000;
     this.sessionId = options.sessionId || null;
@@ -745,12 +759,20 @@ class MCPSseClient extends MCPExternalBaseClient {
 
   disconnect() {
     this.shouldReconnect = false;
+    
+    // Cancel pending reconnection timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    
     if (this.eventSource) {
       try {
         this.eventSource.close();
       } catch (e) { /* no-op */ }
       this.eventSource = null;
     }
+    
     // Reject all pending requests
     for (const [id, pending] of this.pendingRequests.entries()) {
       if (pending && typeof pending.reject === 'function') {
@@ -806,12 +828,16 @@ class MCPSseClient extends MCPExternalBaseClient {
       };
       this.eventSource.onerror = () => {
         try { this.eventSource.close(); } catch (e) { /* no-op */ }
-        setTimeout(() => this._openEventStream(), this.backoffMs);
-        this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+        if (this.shouldReconnect) {
+          this.reconnectTimer = setTimeout(() => this._openEventStream(), this.backoffMs);
+          this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+        }
       };
     } catch (e) {
-      setTimeout(() => this._openEventStream(), this.backoffMs);
-      this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+      if (this.shouldReconnect) {
+        this.reconnectTimer = setTimeout(() => this._openEventStream(), this.backoffMs);
+        this.backoffMs = Math.min(this.backoffMs * 2, this.maxBackoffMs);
+      }
     }
   }
 
