@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2025-01-22
+
+### Fixed
+- **Critical: useEffect Race Condition**: Fixed stale client state and race conditions in useMCPClient
+  - Reset client/tools/resources state at the start of useEffect
+  - Always reinitialize clients when dependencies change (removed `if (!client)` check)
+  - Added cancellation flag to prevent stale initialization from completing
+  - Prevents race conditions when dependencies change rapidly
+  - Ensures cleanup properly disconnects clients before new initialization
+  - Completely eliminates reconnection attempts after component updates
+
+### Technical
+- State reset at useEffect start prevents stale client usage
+- Cancellation flag (`cancelled`) stops async initialization if unmounted
+- Cleanup sets `cancelled = true` and disconnects all clients synchronously
+- Initialization checks `cancelled` flag before updating state
+- Fixes issue where old initialization would complete after cleanup
+
 ## [1.5.2] - 2025-01-22
 
 ### Fixed

@@ -76,6 +76,14 @@ export const useMCPClient = (options = {}) => {
   };
 
   useEffect(() => {
+    // Reset state to prevent using stale client
+    setClient(null);
+    setTools([]);
+    setResources([]);
+    
+    // Flag to cancel initialization if component unmounts or dependencies change
+    let cancelled = false;
+    
     const initClient = async () => {
       try {
         setStatus('connecting');
@@ -124,6 +132,9 @@ export const useMCPClient = (options = {}) => {
         });
 
         const externalResults = await Promise.all(externalInitPromises);
+
+        // Check if cancelled before processing results
+        if (cancelled) return;
 
         // Merge tool catalogs; qualify external tool names as id.tool
         const mergedTools = [];
@@ -242,11 +253,13 @@ export const useMCPClient = (options = {}) => {
       }
     };
 
-    if (!client) {
-      initClient();
-    }
+    // Always initialize when dependencies change
+    initClient();
 
     return () => {
+      // Cancel ongoing initialization
+      cancelled = true;
+      
       // Cleanup: disconnect all external clients to stop reconnection attempts
       for (const [id, ec] of externalClients.entries()) {
         if (ec && typeof ec.disconnect === 'function') {
