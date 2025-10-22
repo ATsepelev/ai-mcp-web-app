@@ -393,7 +393,6 @@ class MCPClient extends MCPBase {
       } catch (error) {
         lastError = error;
         if (attempt < retries - 1) {
-          console.log(`[MCP Client] Initialize attempt ${attempt + 1} failed, retrying in ${delayMs}ms...`);
           await new Promise(resolve => setTimeout(resolve, delayMs));
           delayMs *= 2; // Exponential backoff
         }

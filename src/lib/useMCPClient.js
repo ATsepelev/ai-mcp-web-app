@@ -84,21 +84,16 @@ export const useMCPClient = (options = {}) => {
   };
 
   useEffect(() => {
-    console.log('[MCP] useEffect triggered. Client exists:', !!client, 'Initializing:', initializingRef.current);
-    
     // Prevent concurrent initializations
     if (initializingRef.current) {
-      console.log('[MCP] Already initializing, skipping');
       return;
     }
     
     // Only initialize if client doesn't exist
     if (client) {
-      console.log('[MCP] Client already exists, skipping initialization');
       return;
     }
     
-    console.log('[MCP] Starting client initialization...');
     initializingRef.current = true;
     
     // Flag to cancel initialization if component unmounts or dependencies change
@@ -106,31 +101,21 @@ export const useMCPClient = (options = {}) => {
     
     const initClient = async () => {
       try {
-        console.log('[MCP] Setting status to connecting...');
         setStatus('connecting');
         
-        console.log('[MCP] Creating internal client...');
         const internalClient = MCP.createClient();
-        console.log('[MCP] Internal client created:', !!internalClient);
 
         // Initialize protocol
-        console.log('[MCP] Initializing protocol...');
         await internalClient.initialize();
-        console.log('[MCP] Protocol initialized');
 
         // Load tools
-        console.log('[MCP] Loading internal tools...');
         const internalTools = await internalClient.loadTools();
-        console.log('[MCP] Loaded', internalTools.length, 'internal tools:', internalTools.map(t => t.name));
         
         // Load resources
         let internalResources = [];
         try {
-          console.log('[MCP] Loading internal resources...');
           internalResources = await internalClient.loadResources();
-          console.log('[MCP] Loaded', internalResources.length, 'internal resources');
         } catch (e) {
-          console.log('[MCP] Resources not supported or error:', e.message);
           // Resources may not be supported
         }
 
@@ -183,13 +168,6 @@ export const useMCPClient = (options = {}) => {
           // Apply tool filtering
           const filteredTools = filterTools(mergedTools, allowedTools, blockedTools);
 
-          console.log('[MCP] Updating state:', {
-            mergedTools: mergedTools.length,
-            filteredTools: filteredTools.length,
-            mergedResources: mergedResources.length,
-            externalResults: externalResults.length
-          });
-
           // Update state
           setTools(filteredTools.map(t => ({ name: t.qualifiedName, description: t.description, parameters: t.parameters })));
           setResources(mergedResources.map(r => ({ uri: r.qualifiedUri, name: r.name, description: r.description, mimeType: r.mimeType, annotations: r.annotations })));
@@ -197,7 +175,6 @@ export const useMCPClient = (options = {}) => {
           const anyExternalErrors = externalResults.some(r => r.error);
           const anyConnected = externalResults.some(r => r.client);
           const newStatus = anyExternalErrors && anyConnected ? 'partial_connected' : 'connected';
-          console.log('[MCP] Setting status:', newStatus);
           setStatus(newStatus);
         };
 
@@ -263,11 +240,8 @@ export const useMCPClient = (options = {}) => {
         // Set client immediately with internal tools
         setClient(routedClient);
         
-        console.log('[MCP] Client initialized. Internal tools:', internalTools.length, 'Internal resources:', internalResources.length);
-        
         // If no external servers, set connected status immediately
         if (serverArray.length === 0) {
-          console.log('[MCP] No external servers configured');
           updateMergedState();
           initializingRef.current = false;
         } else {
@@ -280,7 +254,6 @@ export const useMCPClient = (options = {}) => {
           serverArray.forEach((srv) => {
             // Validate server config
             if (!srv || !srv.id || !srv.url) {
-              console.warn('[MCP] Invalid server config:', srv);
               return;
             }
             
@@ -324,10 +297,8 @@ export const useMCPClient = (options = {}) => {
                     tools: result.tools, 
                     resources: result.resources 
                   });
-                  console.log(`[MCP] Connected to external server '${srv.id}'`);
                 }
               } catch (e) {
-                console.warn(`[MCP] Failed to connect to external server '${srv.id}':`, e.message);
                 externalResultsMap.set(srv.id, { 
                   id: srv.id, 
                   client: null, 
@@ -341,9 +312,8 @@ export const useMCPClient = (options = {}) => {
               if (!cancelled) {
                 updateMergedState();
               }
-            })().catch(err => {
-              // Catch any unhandled errors from the async IIFE
-              console.error(`[MCP] Unhandled error for server '${srv.id}':`, err);
+            })().catch(() => {
+              // Silently catch any unhandled errors from the async IIFE
             });
           });
           
@@ -357,9 +327,7 @@ export const useMCPClient = (options = {}) => {
     };
 
     // Only initialize when client doesn't exist
-    console.log('[MCP] Calling initClient()...');
-    initClient().catch(err => {
-      console.error('[MCP] initClient() failed with unhandled error:', err);
+    initClient().catch(() => {
       setStatus('error');
       initializingRef.current = false;
     });
@@ -390,7 +358,7 @@ export const useMCPClient = (options = {}) => {
     return client.readResource(uri);
   }, [client]);
 
-  const returnValue = {
+  return {
     client,
     tools,
     resources,
@@ -398,14 +366,4 @@ export const useMCPClient = (options = {}) => {
     callTool,
     readResource
   };
-  
-  // Log on every render to track state changes
-  console.log('[MCP] useMCPClient returning:', {
-    hasClient: !!client,
-    toolsCount: tools.length,
-    resourcesCount: resources.length,
-    status
-  });
-  
-  return returnValue;
 };

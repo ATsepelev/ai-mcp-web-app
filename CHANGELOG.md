@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2025-01-22
+
+### 🎉 Major Release: Production-Ready MCP Implementation
+
+This release represents a complete overhaul of MCP client/server initialization, external server connectivity, and resource management. All critical race conditions, timeout issues, and reconnection problems have been resolved.
+
+### Added
+- **Incremental External Server Loading**: External MCP servers now load independently without blocking each other
+  - Fast servers appear immediately while slow servers load in background
+  - Tools/resources from each server added progressively as they connect
+  - 10-second timeout per server (configurable via `timeoutMs`)
+  - Graceful degradation when some servers fail
+- **Client Initialize Retry Logic**: Automatic retry with exponential backoff for race conditions
+  - 3 retry attempts with 100ms → 200ms → 400ms delays
+  - 5-second timeout per attempt
+  - Handles server initialization race conditions gracefully
+- **Full MCP Resources Support**: Complete implementation of MCP Resources specification (2025-06-18)
+  - Static resources pre-loaded into system prompt
+  - Dynamic resources exposed as tools for on-demand access
+  - Context size limits (5KB per resource, 20KB total)
+  - Support for both text and binary (base64) content
+
+### Fixed
+- **Critical: Client/Server Race Condition**: Client no longer hangs when initializing before server is ready
+- **Critical: External Server Blocking**: Slow/failing external servers no longer block fast ones
+- **Critical: Infinite Reconnection Loops**: Properly cancelled reconnection timers on disconnect
+- **Critical: Excessive Re-initialization**: Stable dependencies prevent unnecessary client recreation
+- **Partial Server Failures**: Failure of one external server no longer breaks all external tools
+- **Empty Server Array Handling**: Client properly handles case with no external servers configured
+- **Unhandled Promise Rejections**: All async operations properly wrapped with error handlers
+
+### Changed
+- **Removed Debug Logging**: All console.log statements removed for production
+- **Improved Error Handling**: Silent fallbacks for non-critical errors
+- **Better Status Management**: Accurate status reporting (disconnected, connecting, connected, partial_connected, error)
+- **Optimized Performance**: Eliminated unnecessary re-renders and state updates
+
+### Technical Improvements
+- `MCPClient.initialize()` with timeout and retry logic
+- `Promise.race()` for timeout handling in all async operations
+- `useRef` for stable external clients map (prevents re-initialization)
+- `useMemo` with JSON.stringify for stable useEffect dependencies
+- Independent async loops replace blocking `Promise.all()`
+- Proper cleanup in all useEffect hooks
+- Server config validation (checks for `srv.id` and `srv.url`)
+
+### Breaking Changes
+None - fully backward compatible with v1.5.x
+
+### Migration from v1.5.x
+Simply update the package version - no code changes required:
+```bash
+npm install ai-mcp-web-app@1.6.0
+```
+
 ## [1.5.11] - 2025-01-22
 
 ### Fixed
