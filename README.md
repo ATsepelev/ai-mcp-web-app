@@ -348,6 +348,9 @@ function App() {
 ```
 
 ### External MCP Servers (WSS and HTTPS SSE)
+
+External MCP servers support **both tools and resources**. Connect to remote servers via WebSocket or Server-Sent Events:
+
 ```javascript
 <ChatWidget 
   mcpServers={{
@@ -371,13 +374,22 @@ function App() {
 />
 ```
 
-Notes:
+**Tools and Resources from External Servers:**
+- **Tools** are exposed with qualified names: `files.readFile`, `audit.logEvent`
+- **Resources** are exposed with qualified URIs: `files_resource://path/to/file`, `audit_resource://logs`
+- AI can access both tools and resources from external servers seamlessly
+
+**Connection Notes:**
 - For WebSocket (`type: "ws"`), browsers do not support custom headers; pass tokens via query params or subprotocols.
 - For SSE (`type: "http-stream"`), headers are supported for POST requests (also accepts `"sse"` for backward compatibility).
 - Environment variable substitution format: `${VAR_NAME}` or `${VAR_NAME:-default_value}`
-- Tools from external servers are exposed as qualified names like `files.readFile`.
 - Use `allowedTools` to whitelist specific tools (takes priority over `blockedTools`)
 - Use `blockedTools` to blacklist specific tools (all others allowed)
+
+**Spec Compliance:**
+- Supports both spec-compliant methods (`resources/list`, `resources/read`) and legacy methods (`mcp.resources.list`, `mcp.resources.read`)
+- Automatic fallback to legacy methods if spec methods are not supported
+- Resources from external servers are categorized based on their `cachePolicy` annotation (if provided)
 
 ### Tool Filtering
 

@@ -247,7 +247,13 @@ export const useMCPClient = (options = {}) => {
     }
 
     return () => {
-      // Cleanup if needed
+      // Cleanup: disconnect all external clients to stop reconnection attempts
+      for (const [id, ec] of externalClients.entries()) {
+        if (ec && typeof ec.disconnect === 'function') {
+          ec.disconnect();
+        }
+      }
+      externalClients.clear();
     };
   }, [mcpServers, envVars, allowedTools, blockedTools, externalServers]);
 

@@ -596,6 +596,7 @@ class MCPWebSocketClient extends MCPExternalBaseClient {
     this.options = options;
     this.ws = null;
     this.connecting = false;
+    this.shouldReconnect = true;  // Control reconnection attempts
     this.backoffMs = 500;
     this.maxBackoffMs = 8000;
     this.queue = [];
@@ -603,7 +604,25 @@ class MCPWebSocketClient extends MCPExternalBaseClient {
     this._connect();
   }
 
+  disconnect() {
+    this.shouldReconnect = false;
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch (e) { /* no-op */ }
+      this.ws = null;
+    }
+    // Reject all pending requests
+    for (const [id, pending] of this.pendingRequests.entries()) {
+      pending.reject(new Error('Client disconnected'));
+    }
+    this.pendingRequests.clear();
+  }
+
   _connect() {
+    // Don't reconnect if explicitly disconnected
+    if (!this.shouldReconnect) return;
+    
     if (this.connecting || (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING))) {
       return;
     }
@@ -701,6 +720,7 @@ class MCPSseClient extends MCPExternalBaseClient {
     this.url = url; // SSE endpoint for events
     this.options = options;
     this.eventSource = null;
+    this.shouldReconnect = true;  // Control reconnection attempts
     this.backoffMs = 1000;
     this.maxBackoffMs = 10000;
     this.sessionId = options.sessionId || null;
@@ -719,6 +739,21 @@ class MCPSseClient extends MCPExternalBaseClient {
     if (options.listenViaGet === true) {
       this._openEventStream();
     }
+  }
+
+  disconnect() {
+    this.shouldReconnect = false;
+    if (this.eventSource) {
+      try {
+        this.eventSource.close();
+      } catch (e) { /* no-op */ }
+      this.eventSource = null;
+    }
+    // Reject all pending requests
+    for (const [id, pending] of this.pendingRequests.entries()) {
+      pending.reject(new Error('Client disconnected'));
+    }
+    this.pendingRequests.clear();
   }
 
   async initialize() {
@@ -740,6 +775,8 @@ class MCPSseClient extends MCPExternalBaseClient {
   }
 
   _openEventStream() {
+    // Don't reconnect if explicitly disconnected
+    if (!this.shouldReconnect) return;
     try {
       // Native EventSource doesn't support headers. For auth, use query params or a polyfill if needed.
       this.eventSource = new EventSource(this.url, { withCredentials: !!this.options.withCredentials });

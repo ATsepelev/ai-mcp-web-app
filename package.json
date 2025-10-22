@@ -1,6 +1,6 @@
 {
   "name": "ai-mcp-web-app",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "type": "module",
   "description": "A modern chat widget with voice input and in-browser MCP tool integration for AI assistants",
   "keywords": [
