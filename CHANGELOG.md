@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.10] - 2025-01-22
+
+### Fixed
+- **Enhanced Diagnostic Logging**: Added detailed step-by-step logging throughout client initialization
+  - Now logs each step of internal client creation and initialization
+  - Shows exact point where initialization might hang or fail
+  - Added proper error handler for `initClient()` call to catch unhandled rejections
+  - Logs tool names after loading to verify what was actually loaded
+  - Helps identify exactly where in the initialization pipeline the process stops
+
+### Technical
+- Added 8 additional console.log statements in `initClient()` function
+- Added `.catch()` handler for `initClient()` promise to prevent silent failures
+- Each async operation now logs before and after completion
+
 ## [1.5.9] - 2025-01-22
 
 ### Added

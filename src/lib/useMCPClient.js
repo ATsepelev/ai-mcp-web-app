@@ -106,20 +106,31 @@ export const useMCPClient = (options = {}) => {
     
     const initClient = async () => {
       try {
+        console.log('[MCP] Setting status to connecting...');
         setStatus('connecting');
+        
+        console.log('[MCP] Creating internal client...');
         const internalClient = MCP.createClient();
+        console.log('[MCP] Internal client created:', !!internalClient);
 
         // Initialize protocol
+        console.log('[MCP] Initializing protocol...');
         await internalClient.initialize();
+        console.log('[MCP] Protocol initialized');
 
         // Load tools
+        console.log('[MCP] Loading internal tools...');
         const internalTools = await internalClient.loadTools();
+        console.log('[MCP] Loaded', internalTools.length, 'internal tools:', internalTools.map(t => t.name));
         
         // Load resources
         let internalResources = [];
         try {
+          console.log('[MCP] Loading internal resources...');
           internalResources = await internalClient.loadResources();
+          console.log('[MCP] Loaded', internalResources.length, 'internal resources');
         } catch (e) {
+          console.log('[MCP] Resources not supported or error:', e.message);
           // Resources may not be supported
         }
 
@@ -346,7 +357,12 @@ export const useMCPClient = (options = {}) => {
     };
 
     // Only initialize when client doesn't exist
-      initClient();
+    console.log('[MCP] Calling initClient()...');
+    initClient().catch(err => {
+      console.error('[MCP] initClient() failed with unhandled error:', err);
+      setStatus('error');
+      initializingRef.current = false;
+    });
 
     return () => {
       // Cancel ongoing initialization
