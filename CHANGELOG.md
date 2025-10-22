@@ -5,7 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.3] - 2025-01-22
+## [1.5.4] - 2025-01-22
+
+### Fixed
+- **Critical: Excessive Reinitialization**: Fixed constant client recreation causing infinite reconnection loops
+  - Reverted to `if (!client)` check to prevent unnecessary reinitialization
+  - Changed `externalClients` from `useMemo` to `useRef` for stable reference
+  - Added `initializingRef` to prevent concurrent initialization attempts
+  - Reset `initializingRef` in cleanup and after initialization completes
+  - Completely prevents client recreation when dependencies change unnecessarily
+  - Eliminates reconnection attempts triggered by component re-renders
+
+### Technical
+- `externalClients` now uses `useRef` instead of `useMemo` for persistent Map
+- `initializingRef` guards prevent duplicate parallel initializations
+- Cleanup properly resets `initializingRef.current` to allow reinitialization if needed
+- Only initialize once when client is null, not on every dependency change
+
+## [1.5.3] - 2025-01-22 (REVERTED)
 
 ### Fixed
 - **Critical: useEffect Race Condition**: Fixed stale client state and race conditions in useMCPClient

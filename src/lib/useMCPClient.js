@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { MCP, MCPWebSocketClient, MCPSseClient } from './mcp_core';
 
 /**
@@ -16,7 +16,8 @@ export const useMCPClient = (options = {}) => {
   const [resources, setResources] = useState([]);
   const [status, setStatus] = useState('disconnected'); // disconnected, connecting, connected, partial_connected, error
   const { mcpServers = {}, envVars = {}, allowedTools = null, blockedTools = [], externalServers = [] } = options;
-  const externalClients = useMemo(() => new Map(), []);
+  const externalClients = useRef(new Map());
+  const initializingRef = useRef(false);
 
   // Helper function to substitute environment variables
   const substituteEnvVars = (value, envVars) => {
@@ -76,10 +77,17 @@ export const useMCPClient = (options = {}) => {
   };
 
   useEffect(() => {
-    // Reset state to prevent using stale client
-    setClient(null);
-    setTools([]);
-    setResources([]);
+    // Prevent concurrent initializations
+    if (initializingRef.current) {
+      return;
+    }
+    
+    // Only initialize if client doesn't exist
+    if (client) {
+      return;
+    }
+    
+    initializingRef.current = true;
     
     // Flag to cancel initialization if component unmounts or dependencies change
     let cancelled = false;
@@ -116,7 +124,7 @@ export const useMCPClient = (options = {}) => {
             } else {
               ec = new MCPSseClient(srv.url, { headers: srv.headers, withCredentials: srv.withCredentials, postUrl: srv.postUrl, timeoutMs: srv.timeoutMs });
             }
-            externalClients.set(srv.id, ec);
+            externalClients.current.set(srv.id, ec);
             await ec.initialize();
             const extTools = await ec.loadTools();
             let extResources = [];
@@ -185,7 +193,7 @@ export const useMCPClient = (options = {}) => {
             if (typeof name === 'string' && name.includes('_')) {
               const [sid, ...rest] = name.split('_');
               const tool = rest.join('_');
-              const ext = externalClients.get(sid);
+              const ext = externalClients.current.get(sid);
               if (!ext) throw new Error(`Unknown external server '${sid}'`);
               return ext.callTool(tool, args);
             }
@@ -197,7 +205,7 @@ export const useMCPClient = (options = {}) => {
             }
             if (!internalHas && externalMatches.length === 1) {
               const { id } = externalMatches[0];
-              const ext = externalClients.get(id);
+              const ext = externalClients.current.get(id);
               return ext.callTool(name, args);
             }
             if (internalHas && externalMatches.length >= 1) {
@@ -214,7 +222,7 @@ export const useMCPClient = (options = {}) => {
               const parts = uri.split('_');
               const sid = parts[0];
               const resourceUri = parts.slice(1).join('_');
-              const ext = externalClients.get(sid);
+              const ext = externalClients.current.get(sid);
               if (!ext) throw new Error(`Unknown external server '${sid}'`);
               return ext.readResource(resourceUri);
             }
@@ -226,7 +234,7 @@ export const useMCPClient = (options = {}) => {
             }
             if (!internalHas && externalMatches.length === 1) {
               const { id } = externalMatches[0];
-              const ext = externalClients.get(id);
+              const ext = externalClients.current.get(id);
               return ext.readResource(uri);
             }
             if (internalHas && externalMatches.length >= 1) {
@@ -247,26 +255,29 @@ export const useMCPClient = (options = {}) => {
         setClient(routedClient);
         const anyExternalErrors = externalResults.some(r => r.error);
         setStatus(anyExternalErrors && externalResults.some(r => r.client) ? 'partial_connected' : 'connected');
+        initializingRef.current = false;
       } catch (error) {
         console.error('[MCP] Client initialization failed:', error);
         setStatus('error');
+        initializingRef.current = false;
       }
     };
 
-    // Always initialize when dependencies change
+    // Only initialize when client doesn't exist
     initClient();
 
     return () => {
       // Cancel ongoing initialization
       cancelled = true;
+      initializingRef.current = false;
       
       // Cleanup: disconnect all external clients to stop reconnection attempts
-      for (const [id, ec] of externalClients.entries()) {
+      for (const [id, ec] of externalClients.current.entries()) {
         if (ec && typeof ec.disconnect === 'function') {
           ec.disconnect();
         }
       }
-      externalClients.clear();
+      externalClients.current.clear();
     };
   }, [mcpServers, envVars, allowedTools, blockedTools, externalServers]);
 
