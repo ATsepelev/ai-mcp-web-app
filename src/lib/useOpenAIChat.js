@@ -488,16 +488,147 @@ function parseAssistantResponse(assistantMsg, availableTools = new Set()) {
   };
 }
 
-export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000, maxToolLoops = 5, systemPromptAddition = null, temperature = 0.5) => {
+export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000, maxToolLoops = 5, systemPromptAddition = null, temperature = 0.5, mcpResources = [], readResourceFn = null) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState(null);
   const [isExecutingTools, setIsExecutingTools] = useState(false);
+  const [loadedStaticResources, setLoadedStaticResources] = useState('');
+  const resourcesLoadedRef = useRef(false); // Flag to prevent multiple loads
+  const readResourceFnRef = useRef(readResourceFn);
+  
+  // Update ref when function changes
+  useEffect(() => {
+    readResourceFnRef.current = readResourceFn;
+  }, [readResourceFn]);
 
   // Get current localization
   const currentLocale = openaiLocales[locale] || openaiLocales.ru;
+
+  // Categorize resources into static and dynamic
+  const { staticResources, dynamicResources } = useMemo(() => {
+    if (!mcpResources || mcpResources.length === 0) {
+      return { staticResources: [], dynamicResources: [] };
+    }
+
+    // NEW: Use annotations.cachePolicy to categorize (if available)
+    const staticRes = mcpResources.filter(r => {
+      // Check annotations.cachePolicy first (explicit)
+      if (r.annotations && r.annotations.cachePolicy) {
+        return r.annotations.cachePolicy === 'static';
+      }
+      
+      // Fallback: heuristic based on URI patterns (for resources without annotations)
+      const staticURIs = ['configuration', 'product-catalog', 'catalog', 'faq', 'config', 'settings'];
+      return staticURIs.some(pattern => r.uri.toLowerCase().includes(pattern));
+    });
+
+    const dynamicRes = mcpResources.filter(r => {
+      // Check annotations.cachePolicy first (explicit)
+      if (r.annotations && r.annotations.cachePolicy) {
+        return r.annotations.cachePolicy === 'dynamic';
+      }
+      
+      // Fallback: anything not matched as static is dynamic
+      const staticURIs = ['configuration', 'product-catalog', 'catalog', 'faq', 'config', 'settings'];
+      return !staticURIs.some(pattern => r.uri.toLowerCase().includes(pattern));
+    });
+
+    return { staticResources: staticRes, dynamicResources: dynamicRes };
+  }, [mcpResources]);
+
+  // Load static resources on mount and add to context (ONCE)
+  useEffect(() => {
+    const loadStaticResourcesData = async () => {
+      // Skip if already loaded or no resources
+      if (resourcesLoadedRef.current) {
+        return;
+      }
+      
+      if (!staticResources || staticResources.length === 0 || !readResourceFnRef.current) {
+        setLoadedStaticResources('');
+        resourcesLoadedRef.current = true;
+        return;
+      }
+
+      try {
+        console.log('[Resources] Loading static resources...', staticResources.length);
+        
+        const resourceDataPromises = staticResources.map(async (resource) => {
+          try {
+            const result = await readResourceFnRef.current(resource.uri);
+            
+            // Handle both spec-compliant and legacy response formats
+            let data;
+            if (result.contents && Array.isArray(result.contents) && result.contents.length > 0) {
+              // Spec-compliant format: { contents: [{ uri, mimeType, text }] }
+              const content = result.contents[0];
+              data = content.text ? JSON.parse(content.text) : content;
+            } else if (result.data) {
+              // Legacy format: { success: true, data: {...} }
+              data = result.data;
+            } else {
+              data = result;
+            }
+
+            // Stringify with size limit to prevent huge prompts
+            let dataStr = JSON.stringify(data, null, 2);
+            const MAX_RESOURCE_SIZE = 5000; // 5KB limit per resource
+            if (dataStr.length > MAX_RESOURCE_SIZE) {
+              dataStr = dataStr.substring(0, MAX_RESOURCE_SIZE) + '\n... (truncated)';
+              console.warn(`[Resources] Resource ${resource.uri} truncated (${dataStr.length} chars)`);
+            }
+
+            return {
+              name: resource.name || resource.uri,
+              uri: resource.uri,
+              data: dataStr
+            };
+          } catch (err) {
+            console.warn(`[Resources] Failed to load resource ${resource.uri}:`, err);
+            return null;
+          }
+        });
+
+        const loadedData = await Promise.all(resourceDataPromises);
+        const validData = loadedData.filter(d => d !== null);
+
+        if (validData.length > 0) {
+          const resourceContext = validData
+            .map(r => `📦 Resource: ${r.name} (${r.uri})\n${r.data}`)
+            .join('\n\n---\n\n');
+          
+          // Check total size
+          const totalSize = resourceContext.length;
+          const MAX_TOTAL_SIZE = 20000; // 20KB total limit
+          
+          if (totalSize > MAX_TOTAL_SIZE) {
+            console.warn(`[Resources] Total context too large (${totalSize} chars), limiting...`);
+            setLoadedStaticResources(`\n\n## Available Context Data\n\n${resourceContext.substring(0, MAX_TOTAL_SIZE)}\n... (truncated)`);
+          } else {
+            setLoadedStaticResources(`\n\n## Available Context Data\n\n${resourceContext}`);
+          }
+          
+          console.log(`[Resources] Loaded ${validData.length} static resources (${totalSize} chars)`);
+        } else {
+          setLoadedStaticResources('');
+        }
+        
+        resourcesLoadedRef.current = true;
+      } catch (error) {
+        console.error('[Resources] Error loading static resources:', error);
+        setLoadedStaticResources('');
+        resourcesLoadedRef.current = true;
+      }
+    };
+
+    // Trigger load when resources become available (but only once)
+    if (staticResources.length > 0 && readResourceFnRef.current && !resourcesLoadedRef.current) {
+      loadStaticResourcesData();
+    }
+  }, [staticResources.length]); // Only depend on count to avoid re-triggers
 
   // System prompt with localization (recomputed when tools or locale/mode change)
   // toolsMode: 'api' = tools passed via API parameter only (standard)
@@ -514,13 +645,18 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       basePrompt = currentLocale.systemPrompt;
     }
     
+    // Append static resources context (loaded data available to AI)
+    if (loadedStaticResources) {
+      basePrompt = `${basePrompt}${loadedStaticResources}`;
+    }
+    
     // Append custom system prompt addition if provided
     if (systemPromptAddition && typeof systemPromptAddition === 'string' && systemPromptAddition.trim()) {
       return `${basePrompt}\n\n${systemPromptAddition.trim()}`;
     }
     
     return basePrompt;
-  }, [currentLocale, toolsMode, actualToolsSchema, systemPromptAddition]);
+  }, [currentLocale, toolsMode, actualToolsSchema, systemPromptAddition, loadedStaticResources]);
 
 
   const conversationHistoryRef = useRef([{ role: "system", content: systemPrompt }]);
@@ -539,8 +675,47 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
   const isProcessingRef = useRef(false);
   const usedFollowUpRef = useRef(false);
 
-  // Use provided tools
-  const availableTools = new Set((actualToolsSchema || []).map(t => t.function.name));
+  // Create tool for dynamic resources (if any exist)
+  const dynamicResourceTool = useMemo(() => {
+    if (!dynamicResources || dynamicResources.length === 0) {
+      return null;
+    }
+
+    const resourcesList = dynamicResources
+      .map(r => `  - ${r.uri}: ${r.description || r.name}`)
+      .join('\n');
+
+    return {
+      type: "function",
+      function: {
+        name: "readMCPResource",
+        description: `Read real-time data from MCP resources. Use this to get current state information.\n\nAvailable dynamic resources:\n${resourcesList}`,
+        parameters: {
+          type: "object",
+          properties: {
+            uri: {
+              type: "string",
+              enum: dynamicResources.map(r => r.uri),
+              description: "URI of the resource to read"
+            }
+          },
+          required: ["uri"]
+        }
+      }
+    };
+  }, [dynamicResources]);
+
+  // Extended tools schema including dynamic resource tool
+  const extendedToolsSchema = useMemo(() => {
+    const tools = actualToolsSchema || [];
+    if (dynamicResourceTool) {
+      return [...tools, dynamicResourceTool];
+    }
+    return tools;
+  }, [actualToolsSchema, dynamicResourceTool]);
+
+  // Use provided tools + resource tool
+  const availableTools = new Set(extendedToolsSchema.map(t => t.function.name));
 
   const clearChat = useCallback(() => {
     setMessages([]);
@@ -591,6 +766,32 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       }
 
       try {
+        // Special handling for readMCPResource tool
+        if (funcName === 'readMCPResource' && readResourceFnRef.current) {
+          const uri = funcArgs.uri;
+          const result = await readResourceFnRef.current(uri);
+          
+          // Handle both spec-compliant and legacy response formats
+          let data;
+          if (result.contents && Array.isArray(result.contents) && result.contents.length > 0) {
+            // Spec-compliant format: { contents: [{ uri, mimeType, text }] }
+            const content = result.contents[0];
+            data = content.text ? JSON.parse(content.text) : content;
+          } else if (result.data) {
+            // Legacy format: { success: true, data: {...} }
+            data = result.data;
+          } else {
+            data = result;
+          }
+
+          return {
+            role: "tool",
+            tool_call_id: toolCallId,
+            content: JSON.stringify({ success: true, resource: uri, data })
+          };
+        }
+
+        // Regular tool execution
         const result = await mcpClient.callTool(funcName, funcArgs);
 
         return {
@@ -627,14 +828,14 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     } finally {
       setIsExecutingTools(false);
     }
-  }, [mcpClient, actualToolsSchema, currentLocale]);
+  }, [mcpClient, actualToolsSchema, currentLocale, availableTools]);
 
   const callOpenAI = useCallback(async (history, options = {}) => {
     // Use provided parameters or defaults
     const actualModelName = modelName || 'gpt-4o-mini';
     const actualBaseUrl = baseUrl || 'http://127.0.0.1:1234/v1';
     const actualApiKey = apiKey;
-    const toolsSchema = options.toolsOverride !== undefined ? options.toolsOverride : (actualToolsSchema || []);
+    const toolsSchema = options.toolsOverride !== undefined ? options.toolsOverride : (extendedToolsSchema || []);
     const actualToolChoice = options.toolChoiceOverride !== undefined ? options.toolChoiceOverride : 'auto';
 
     const requestBody = {
@@ -692,7 +893,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     }
 
     return await response.json();
-  }, [modelName, baseUrl, apiKey, actualToolsSchema, currentLocale, toolsMode]);
+  }, [modelName, baseUrl, apiKey, extendedToolsSchema, currentLocale, toolsMode]);
 
   // Streaming version of OpenAI API call
   const callOpenAIStream = useCallback(async (history, options = {}, onChunk) => {
@@ -700,7 +901,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     const actualModelName = modelName || 'gpt-4o-mini';
     const actualBaseUrl = baseUrl || 'http://127.0.0.1:1234/v1';
     const actualApiKey = apiKey;
-    const toolsSchema = options.toolsOverride !== undefined ? options.toolsOverride : (actualToolsSchema || []);
+    const toolsSchema = options.toolsOverride !== undefined ? options.toolsOverride : (extendedToolsSchema || []);
     const actualToolChoice = options.toolChoiceOverride !== undefined ? options.toolChoiceOverride : 'auto';
 
     const requestBody = {
@@ -792,7 +993,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     } finally {
       reader.releaseLock();
     }
-  }, [modelName, baseUrl, apiKey, actualToolsSchema, currentLocale, toolsMode]);
+  }, [modelName, baseUrl, apiKey, extendedToolsSchema, currentLocale, toolsMode]);
 
   // Optional validator: checks assistant display content and can warn or request a revision
   const validateAssistantContent = useCallback(async (assistantText) => {

@@ -149,6 +149,7 @@ class MCPServer extends MCPBase {
   constructor(eventTarget = window) {
     super('server', eventTarget);
     this.tools = [];
+    this.resources = [];
     this.setupProtocolHandlers();
   }
 
@@ -162,9 +163,16 @@ class MCPServer extends MCPBase {
         };
       }
 
+      // Spec-compliant capabilities format (2025-06-18)
       return {
         version: MCP_PROTOCOL_VERSION,
-        capabilities: ["tools"]
+        capabilities: {
+          tools: {},
+          resources: {
+            subscribe: false,      // subscriptions not implemented yet
+            listChanged: false     // list change notifications not implemented yet
+          }
+        }
       };
     });
 
@@ -200,6 +208,101 @@ class MCPServer extends MCPBase {
         };
       }
     });
+
+    // Return resources list (spec-compliant)
+    this.onRequest('resources/list', () => {
+      return {
+        resources: this.resources.map(resource => ({
+          uri: resource.uri,
+          name: resource.name,
+          title: resource.title,           // Spec 2025-06-18: human-readable title
+          description: resource.description,
+          mimeType: resource.mimeType,
+          size: resource.size,             // Spec 2025-06-18: optional size in bytes
+          annotations: resource.annotations
+        }))
+      };
+    });
+
+    // Return resources list (legacy)
+    this.onRequest('mcp.resources.list', () => {
+      return this.resources.map(resource => ({
+        uri: resource.uri,
+        name: resource.name,
+        title: resource.title,
+        description: resource.description,
+        mimeType: resource.mimeType,
+        size: resource.size,
+        annotations: resource.annotations
+      }));
+    });
+
+    // Read resource (spec-compliant 2025-06-18)
+    this.onRequest('resources/read', async (params) => {
+      const { uri } = params;
+      const resource = this.resources.find(r => r.uri === uri);
+
+      if (!resource) {
+        throw {
+          code: -32002,  // Spec error code for "Resource not found"
+          message: `Resource not found`,
+          data: { uri }
+        };
+      }
+
+      try {
+        const data = await resource.handler();
+        const content = {
+          uri: resource.uri,
+          name: resource.name,                    // Spec 2025-06-18
+          title: resource.title,                  // Spec 2025-06-18
+          mimeType: resource.mimeType || 'application/json'
+        };
+        
+        // Determine if data is text or binary
+        if (typeof data === 'string') {
+          content.text = data;
+        } else if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+          // Binary data: encode as base64
+          content.blob = btoa(String.fromCharCode(...new Uint8Array(data)));
+        } else {
+          // Object/JSON: stringify
+          content.text = JSON.stringify(data, null, 2);
+        }
+
+        return { contents: [content] };
+      } catch (error) {
+        throw {
+          code: -32603,  // Internal error
+          message: `Resource read failed: ${error.message}`,
+          data: error
+        };
+      }
+    });
+
+    // Read resource (legacy)
+    this.onRequest('mcp.resources.read', async (params) => {
+      const { uri } = params;
+      const resource = this.resources.find(r => r.uri === uri);
+
+      if (!resource) {
+        throw {
+          code: 4004,
+          message: `Resource '${uri}' not found`
+        };
+      }
+
+      try {
+        const data = await resource.handler();
+        return { success: true, data, mimeType: resource.mimeType || 'application/json' };
+      } catch (error) {
+        throw {
+          code: 5001,
+          message: `Resource read failed: ${error.message}`,
+          data: error
+        };
+      }
+    });
   }
 
   registerTool(tool) {
@@ -223,6 +326,32 @@ class MCPServer extends MCPBase {
   registerTools(tools) {
     tools.forEach(tool => this.registerTool(tool));
   }
+
+  registerResource(resource) {
+    if (!resource.uri || !resource.handler) {
+      throw new Error("Invalid resource definition");
+    }
+
+    // Check for duplicates
+    if (this.resources.some(r => r.uri === resource.uri)) {
+      this.resources = this.resources.filter(r => r.uri !== resource.uri);
+    }
+
+    this.resources.push({
+      uri: resource.uri,
+      name: resource.name || resource.uri,
+      title: resource.title || resource.name || resource.uri,  // Spec 2025-06-18: human-readable title
+      description: resource.description || "",
+      mimeType: resource.mimeType || "application/json",
+      size: resource.size,                                      // Spec 2025-06-18: optional size in bytes
+      annotations: resource.annotations || {},
+      handler: resource.handler
+    });
+  }
+
+  registerResources(resources) {
+    resources.forEach(resource => this.registerResource(resource));
+  }
 }
 
 class MCPClient extends MCPBase {
@@ -230,6 +359,7 @@ class MCPClient extends MCPBase {
     super('client', eventTarget);
     this.initialized = false;
     this.tools = [];
+    this.resources = [];
   }
 
   async initialize() {
@@ -237,7 +367,10 @@ class MCPClient extends MCPBase {
 
     const response = await this.sendRequest('mcp.initialize', {
       version: MCP_PROTOCOL_VERSION,
-      capabilities: ["tools"]
+      capabilities: {
+        tools: {},
+        resources: {}
+      }
     });
 
     if (response.version !== MCP_PROTOCOL_VERSION) {
@@ -268,6 +401,26 @@ class MCPClient extends MCPBase {
       arguments: args
     });
   }
+
+  async loadResources() {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    const resources = await this.sendRequest('mcp.resources.list');
+    this.resources = resources;
+    return resources;
+  }
+
+  async readResource(uri) {
+    if (!this.initialized) {
+      await this.initialize();
+    }
+
+    return this.sendRequest('mcp.resources.read', {
+      uri: uri
+    });
+  }
 }
 
 const MCP = {
@@ -291,6 +444,7 @@ class MCPExternalBaseClient {
   constructor(options = {}) {
     this.initialized = false;
     this.tools = [];
+    this.resources = [];
     this.pendingRequests = new Map();
     this.requestIdCounter = 1;
     this.sessionId = options.sessionId || null;
@@ -387,6 +541,33 @@ class MCPExternalBaseClient {
     const tools = Array.isArray(result) ? result : (result && Array.isArray(result.tools) ? result.tools : []);
     this.tools = tools;
     return this.tools;
+  }
+
+  async loadResources() {
+    if (!this.initialized) await this.initialize();
+    // Try spec list first
+    let result;
+    try {
+      result = await this.sendRequest(this.buildRequest('resources/list'));
+    } catch (e) {
+      // fallback legacy
+      result = await this.sendRequest(this.buildRequest('mcp.resources.list'));
+    }
+    // Normalize result: spec -> { resources: [...] }, legacy -> [...]
+    const resources = Array.isArray(result) ? result : (result && Array.isArray(result.resources) ? result.resources : []);
+    this.resources = resources;
+    return this.resources;
+  }
+
+  async readResource(uri) {
+    if (!this.initialized) await this.initialize();
+    // Try spec read first, fallback to legacy
+    try {
+      const res = await this.sendRequest(this.buildRequest('resources/read', { uri }));
+      return res;
+    } catch (e) {
+      return this.sendRequest(this.buildRequest('mcp.resources.read', { uri }));
+    }
   }
 
   async callTool(name, args) {

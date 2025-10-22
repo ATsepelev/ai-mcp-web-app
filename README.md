@@ -5,10 +5,12 @@ A modern, customizable chat widget with voice input support and MCP (Model Commu
 ## Features
 
 - **Voice Input**: Speech-to-text functionality for hands-free messaging
-- **MCP Integration**: Built-in support for Model Communication Protocol tools
+- **MCP Integration**: Built-in support for Model Communication Protocol tools and resources
+- **MCP Resources**: Full support for contextual data (static) and real-time data (dynamic) resources
 - **Customizable UI**: Multiple positioning options and component visibility settings
 - **Multi-language Support**: Localization support with custom locales
 - **Tool Integration**: Built-in review form tools with DOM manipulation capabilities
+- **Context Management**: Automatic resource loading into AI context for enhanced understanding
 - **Responsive Design**: Works on desktop and mobile devices
 
 ## Installation
@@ -506,11 +508,196 @@ function clickSubmitReview() {
 }
 ```
 
-## Internal MCP Server Integration
-Initialize the MCP server with your tool definitions:
+## MCP Resources Development
+
+### What are MCP Resources?
+
+MCP Resources are **read-only data endpoints** that provide context to AI assistants. Unlike tools (which perform actions), resources supply information that helps the AI understand your application's state, configuration, and available data.
+
+### Resource Types
+
+**Static Resources** - Contextual data that doesn't change frequently:
+- Product catalogs
+- Configuration settings
+- FAQ/Help content
+- Reference data
+
+**Dynamic Resources** - Real-time data that updates based on application state:
+- Form field values
+- User session information
+- Performance statistics
+- Page snapshots
+
+### Resource Definition Structure
 
 ```javascript
+export const RESOURCES = [
+  {
+    uri: "resource://example/product-catalog",
+    name: "product-catalog",              // ID/slug (machine-readable)
+    title: "Product Catalog",             // Display name (human-readable)
+    description: "List of available products with prices and availability",
+    mimeType: "application/json",
+    handler: async () => {
+      // Return resource data
+      return {
+        products: [
+          { id: 1, name: "Smart Watch", price: 299.99, inStock: true },
+          { id: 2, name: "Wireless Headphones", price: 199.99, inStock: true }
+        ]
+      };
+    },
+    annotations: {
+      audience: ["user", "assistant"],    // Who can use this resource
+      priority: 0.8,                       // Importance (0.0-1.0)
+      cachePolicy: "static",               // "static" or "dynamic"
+      lastModified: "2025-01-15T10:00:00Z" // ISO 8601 timestamp
+    }
+  }
+];
+```
+
+### Key Resource Fields
+
+- **`uri`** (required): Unique identifier for the resource (RFC3986 compliant)
+- **`name`** (required): Machine-readable ID/slug
+- **`title`** (optional): Human-readable display name
+- **`description`** (optional): Detailed description for AI understanding
+- **`mimeType`** (optional): Content type (default: "application/json")
+- **`size`** (optional): Size in bytes
+- **`handler`** (required): Async function that returns resource data
+- **`annotations`** (optional): Metadata for resource behavior
+
+### Annotations Explained
+
+```javascript
+annotations: {
+  // Who should see/use this resource
+  audience: ["user", "assistant"],  // or just ["assistant"] for AI-only data
+  
+  // How important is this resource (0.0 = optional, 1.0 = required)
+  priority: 0.8,
+  
+  // How should this resource be cached?
+  cachePolicy: "static",   // "static" = load once into AI context
+                          // "dynamic" = read on-demand when needed
+  
+  // When was this resource last updated?
+  lastModified: "2025-01-15T10:00:00Z"  // ISO 8601 format
+}
+```
+
+### How Resources Work with AI
+
+**Static Resources:**
+- Pre-loaded into AI's system prompt on initialization
+- Provide immediate context without requiring tool calls
+- Best for reference data that doesn't change during conversation
+- Size-limited to prevent prompt overflow (5KB per resource, 20KB total)
+
+**Dynamic Resources:**
+- Exposed as `readMCPResource` tool
+- AI can request current data when needed
+- Best for state that changes frequently
+- Always returns fresh data
+
+### Example: Complete Resource Set
+
+```javascript
+// src/mcp_resources.js
+export const RESOURCES = [
+  // Static: Product catalog
+  {
+    uri: "resource://app/products",
+    name: "products",
+    title: "Product Catalog",
+    description: "Available products with pricing",
+    mimeType: "application/json",
+    handler: async () => ({
+      products: [
+        { id: 1, name: "Item A", price: 99.99 },
+        { id: 2, name: "Item B", price: 149.99 }
+      ]
+    }),
+    annotations: {
+      audience: ["assistant"],
+      priority: 0.9,
+      cachePolicy: "static",
+      lastModified: "2025-01-15T10:00:00Z"
+    }
+  },
+  
+  // Dynamic: Current form state
+  {
+    uri: "resource://app/form-state",
+    name: "form-state",
+    title: "Current Form State",
+    description: "Real-time form field values and validation",
+    mimeType: "application/json",
+    handler: async () => {
+      const nameInput = document.querySelector('#name');
+      const emailInput = document.querySelector('#email');
+      return {
+        fields: {
+          name: nameInput?.value || "",
+          email: emailInput?.value || ""
+        },
+        isValid: nameInput?.value && emailInput?.value
+      };
+    },
+    annotations: {
+      audience: ["assistant"],
+      priority: 0.95,
+      cachePolicy: "dynamic",
+      lastModified: new Date().toISOString()  // Always current
+    }
+  }
+];
+```
+
+### Using Resources
+
+```javascript
+import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { TOOLS } from "./mcp_tools";
+import { RESOURCES } from "./mcp_resources";
+
+function App() {
+  // Register both tools and resources
+  useMCPServer(TOOLS, RESOURCES);
+  
+  return (
+    <ChatWidget 
+      modelName="gpt-4o-mini"
+      baseUrl="http://127.0.0.1:1234/v1"
+      apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+      locale="en"
+    />
+  );
+}
+```
+
+### Benefits of MCP Resources
+
+1. **Enhanced AI Context**: AI has immediate access to your app's data
+2. **Reduced Prompt Engineering**: No need to manually describe your data in prompts
+3. **Real-time Data Access**: Dynamic resources always return current state
+4. **Standardized Protocol**: Follows MCP 2025-06-18 specification
+5. **Performance Optimized**: Automatic size limiting and caching strategies
+
+## Internal MCP Server Integration
+
+Initialize the MCP server with your tool and resource definitions:
+
+```javascript
+// Tools only
 useMCPServer(TOOLS);
+
+// Tools and resources
+useMCPServer(TOOLS, RESOURCES);
+
+// Resources only
+useMCPServer([], RESOURCES);
 ```
 
 ## API Configuration
@@ -750,12 +937,15 @@ src/
 │   │       ├── en.js
 │   │       ├── ru.js
 │   │       └── zh.js
-│   ├── mcp_core.js               # MCP protocol implementation
+│   ├── mcp_core.js               # MCP protocol implementation (tools & resources)
 │   ├── useMCPClient.js           # React hook for MCP client
 │   ├── useMCPServer.js           # React hook for MCP server
 │   ├── useOpenAIChat.js          # Chat logic and OpenAI integration
-│   └── voiceInput.js             # Voice recognition module (new in v1.4.0)
+│   └── voiceInput.js             # Voice recognition module
 └── examples/                      # Example implementations (not included in build)
+    ├── mcp_tools_en.js           # Example MCP tools
+    ├── mcp_resources_en.js       # Example MCP resources (new in v1.5.0)
+    └── ...
 ```
 
 ### Build System
@@ -783,12 +973,16 @@ replace({
 ### Key Components
 - **ChatWidget**: Main UI component
 - **useOpenAIChat**: Chat logic and message handling
-- **voiceInput**: Speech recognition module (new in v1.4.0)
+- **voiceInput**: Speech recognition module
   - Isolated voice recognition logic with clean API
   - Prevents duplicate message delivery
   - Handles all Speech Recognition API edge cases
-- **MCP Core**: Protocol implementation for tool communication
+- **MCP Core**: Protocol implementation for tool and resource communication
 - **MCP Tools**: Built-in DOM manipulation tools
+- **MCP Resources**: Read-only data endpoints for AI context (new in v1.5.0)
+  - Static resources: Pre-loaded contextual data
+  - Dynamic resources: Real-time on-demand data
+  - Spec-compliant with MCP 2025-06-18
 - **useMCPClient/Server**: React hooks for MCP integration
 
 ## Contributing

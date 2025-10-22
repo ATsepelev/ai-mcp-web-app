@@ -627,7 +627,7 @@ const ChatWidget = ({
     return mcpServers;
   }, [externalServers, mcpServers]);
 
-  const { client, tools, status } = useMCPClient({ 
+  const { client, tools, resources, status, readResource } = useMCPClient({ 
     mcpServers: finalMcpServers,
     envVars,
     allowedTools,
@@ -667,7 +667,9 @@ const ChatWidget = ({
     maxContextSize,
     maxToolLoops,
     systemPromptAddition,
-    temperature
+    temperature,
+    resources,
+    readResource
   );
 
 

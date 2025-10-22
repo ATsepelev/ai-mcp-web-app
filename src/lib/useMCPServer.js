@@ -6,8 +6,9 @@ let serverInstance = null;
 /**
  * Hook for initializing MCP server
  * @param {Array} tools Array of tools to register
+ * @param {Array} resources Array of resources to register
  */
-export const useMCPServer = (tools = []) => {
+export const useMCPServer = (tools = [], resources = []) => {
   useEffect(() => {
     if (!serverInstance) {
       serverInstance = MCP.createServer();
@@ -21,12 +22,26 @@ export const useMCPServer = (tools = []) => {
           handler: tool.handler
         });
       });
+
+      // Register resources (Spec 2025-06-18)
+      resources.forEach(resource => {
+        serverInstance.registerResource({
+          uri: resource.uri,
+          name: resource.name,
+          title: resource.title,           // Spec 2025-06-18
+          description: resource.description,
+          mimeType: resource.mimeType,
+          size: resource.size,             // Spec 2025-06-18
+          annotations: resource.annotations,  // Include annotations
+          handler: resource.handler
+        });
+      });
     }
 
     return () => {
       // Cleanup if needed
     };
-  }, [tools]);
+  }, [tools, resources]);
 
   return serverInstance;
 };

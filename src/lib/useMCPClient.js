@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { MCP, MCPWebSocketClient, MCPSseClient } from './mcp_core';
 
 /**
@@ -13,6 +13,7 @@ import { MCP, MCPWebSocketClient, MCPSseClient } from './mcp_core';
 export const useMCPClient = (options = {}) => {
   const [client, setClient] = useState(null);
   const [tools, setTools] = useState([]);
+  const [resources, setResources] = useState([]);
   const [status, setStatus] = useState('disconnected'); // disconnected, connecting, connected, partial_connected, error
   const { mcpServers = {}, envVars = {}, allowedTools = null, blockedTools = [], externalServers = [] } = options;
   const externalClients = useMemo(() => new Map(), []);
@@ -85,6 +86,14 @@ export const useMCPClient = (options = {}) => {
 
         // Load tools
         const internalTools = await internalClient.loadTools();
+        
+        // Load resources
+        let internalResources = [];
+        try {
+          internalResources = await internalClient.loadResources();
+        } catch (e) {
+          // Resources may not be supported
+        }
 
         // Get processed server array
         const serverArray = getServerArray();
@@ -102,9 +111,15 @@ export const useMCPClient = (options = {}) => {
             externalClients.set(srv.id, ec);
             await ec.initialize();
             const extTools = await ec.loadTools();
-            return { id: srv.id, client: ec, tools: extTools };
+            let extResources = [];
+            try {
+              extResources = await ec.loadResources();
+            } catch (e) {
+              // Resources may not be supported by all servers
+            }
+            return { id: srv.id, client: ec, tools: extTools, resources: extResources };
           } catch (e) {
-            return { id: srv.id, client: null, tools: [], error: e };
+            return { id: srv.id, client: null, tools: [], resources: [], error: e };
           }
         });
 
@@ -125,6 +140,29 @@ export const useMCPClient = (options = {}) => {
               const description = t.description || t.title || '';
               const parameters = t.parameters || t.inputSchema || {};
               mergedTools.push({ name, description, parameters, source: res.id, qualifiedName: `${res.id}_${name}` });
+            }
+          }
+        }
+
+        // Merge resource catalogs; qualify external resource URIs as id_uri
+        // Spec 2025-06-18: include title, size, and annotations
+        const mergedResources = [];
+        // internal first (source: internal)
+        for (const r of internalResources) {
+          mergedResources.push({ ...r, source: 'internal', qualifiedUri: r.uri });
+        }
+        for (const res of externalResults) {
+          if (res && res.resources && res.client) {
+            for (const r of res.resources) {
+              // Normalize resource fields (Spec 2025-06-18)
+              const uri = r.uri;
+              const name = r.name || uri;
+              const title = r.title || name;                    // Spec 2025-06-18
+              const description = r.description || '';
+              const mimeType = r.mimeType || 'application/json';
+              const size = r.size;                              // Spec 2025-06-18
+              const annotations = r.annotations || {};
+              mergedResources.push({ uri, name, title, description, mimeType, size, annotations, source: res.id, qualifiedUri: `${res.id}_${uri}` });
             }
           }
         }
@@ -158,6 +196,35 @@ export const useMCPClient = (options = {}) => {
               throw new Error(`Ambiguous external tool '${name}'. Use qualified name '<serverId>_${name}'.`);
             }
             throw new Error(`Tool '${name}' not found.`);
+          },
+          readResource: async (uri) => {
+            // If qualified: id_uri
+            if (typeof uri === 'string' && uri.includes('_')) {
+              const parts = uri.split('_');
+              const sid = parts[0];
+              const resourceUri = parts.slice(1).join('_');
+              const ext = externalClients.get(sid);
+              if (!ext) throw new Error(`Unknown external server '${sid}'`);
+              return ext.readResource(resourceUri);
+            }
+            // Bare URI: try internal first; if ambiguous across externals, error
+            const internalHas = internalResources.some(r => r.uri === uri);
+            const externalMatches = externalResults.filter(r => r.client && r.resources && r.resources.some(res => res.uri === uri));
+            if (internalHas && externalMatches.length === 0) {
+              return internalClient.readResource(uri);
+            }
+            if (!internalHas && externalMatches.length === 1) {
+              const { id } = externalMatches[0];
+              const ext = externalClients.get(id);
+              return ext.readResource(uri);
+            }
+            if (internalHas && externalMatches.length >= 1) {
+              throw new Error(`Ambiguous resource '${uri}'. Use qualified URI like 'internal_${uri}' or '<serverId>_${uri}'.`);
+            }
+            if (!internalHas && externalMatches.length > 1) {
+              throw new Error(`Ambiguous external resource '${uri}'. Use qualified URI '<serverId>_${uri}'.`);
+            }
+            throw new Error(`Resource '${uri}' not found.`);
           }
         };
 
@@ -165,6 +232,7 @@ export const useMCPClient = (options = {}) => {
         const filteredTools = filterTools(mergedTools, allowedTools, blockedTools);
 
         setTools(filteredTools.map(t => ({ name: t.qualifiedName, description: t.description, parameters: t.parameters })));
+        setResources(mergedResources.map(r => ({ uri: r.qualifiedUri, name: r.name, description: r.description, mimeType: r.mimeType, annotations: r.annotations })));
         setClient(routedClient);
         const anyExternalErrors = externalResults.some(r => r.error);
         setStatus(anyExternalErrors && externalResults.some(r => r.client) ? 'partial_connected' : 'connected');
@@ -183,10 +251,23 @@ export const useMCPClient = (options = {}) => {
     };
   }, [mcpServers, envVars, allowedTools, blockedTools, externalServers]);
 
+  // Stable callback functions to prevent unnecessary re-renders
+  const callTool = useCallback((name, args) => {
+    if (!client) return Promise.reject(new Error('Client not initialized'));
+    return client.callTool(name, args);
+  }, [client]);
+
+  const readResource = useCallback((uri) => {
+    if (!client) return Promise.reject(new Error('Client not initialized'));
+    return client.readResource(uri);
+  }, [client]);
+
   return {
     client,
     tools,
+    resources,
     status,
-    callTool: client ? client.callTool.bind(client) : null
+    callTool,
+    readResource
   };
 };

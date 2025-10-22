@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2025-01-22
+
+### Added
+- **MCP Resources Support**: Full implementation of MCP Resources specification (2025-06-18)
+  - Static resources for contextual data (product catalogs, configuration, FAQ)
+  - Dynamic resources for real-time data (form state, session info, statistics)
+  - Automatic categorization via `cachePolicy` annotation
+  - Spec-compliant resource descriptors with `uri`, `name`, `title`, `description`, `mimeType`, `size`
+  - Support for both text and binary (base64) content
+  - `resources/list` and `resources/read` protocol methods
+  - Legacy method support: `mcp.resources.list` and `mcp.resources.read`
+  
+- **AI Integration of Resources**: 
+  - Static resources pre-loaded into system prompt for immediate context
+  - Dynamic resources exposed as `readMCPResource` tool for on-demand access
+  - Context size limits (5KB per resource, 20KB total) to prevent prompt overflow
+  - Efficient resource categorization based on `cachePolicy` metadata
+  
+- **New React Hooks**:
+  - `useMCPServer` now accepts `resources` parameter for resource registration
+  - `useMCPClient` returns `resources` array and `readResource` function
+  - Resources merged from internal and external MCP servers
+  
+- **Spec Compliance (MCP 2025-06-18)**:
+  - Proper capabilities format: `{ tools: {}, resources: { subscribe, listChanged } }`
+  - Complete resource annotations: `audience`, `priority`, `lastModified`
+  - Binary data support via `blob` field (base64 encoding)
+  - Spec-compliant error codes: `-32002` (not found), `-32603` (internal error)
+
+### Changed
+- **Capabilities Format**: Updated from array to object structure per MCP spec
+- **Resource Descriptors**: Enhanced with `title` (display name) and `size` (bytes) fields
+- **Annotations**: Added `lastModified` (ISO 8601) timestamp field
+- **Resource Contents**: Now include `name` and `title` fields in response
+- **Performance**: Optimized resource loading with ref-based flags to prevent infinite loops
+
+### Fixed
+- **Infinite Loop Prevention**: Added `resourcesLoadedRef` to ensure static resources load only once
+- **Stable Function References**: Wrapped `readResource` in `useCallback` to prevent re-renders
+- **Context Management**: Implemented size limits to prevent excessively large prompts
+
+### Technical
+- Complete MCP Resources protocol implementation in `mcp_core.js`
+- Resource merging and routing logic in `useMCPClient.js`
+- Resource registration and handler management in `useMCPServer.js`
+- AI context integration in `useOpenAIChat.js`
+- Example resources in `src/examples/mcp_resources_en.js`
+- Comprehensive spec compliance documentation
+
 ## [1.4.1] - 2025-10-21
 
 ### Added

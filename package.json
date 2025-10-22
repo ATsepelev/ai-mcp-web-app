@@ -1,6 +1,6 @@
 {
   "name": "ai-mcp-web-app",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "type": "module",
   "description": "A modern chat widget with voice input and in-browser MCP tool integration for AI assistants",
   "keywords": [
@@ -9,6 +9,8 @@
     "ai",
     "mcp",
     "model-communication-protocol",
+    "mcp-resources",
+    "mcp-tools",
     "voice-input",
     "speech-to-text",
     "openai",
@@ -16,7 +18,9 @@
     "chatbot",
     "assistant",
     "automation",
-    "tools"
+    "tools",
+    "resources",
+    "context"
   ],
   "main": "dist/index.js",
   "module": "dist/index.esm.js",
