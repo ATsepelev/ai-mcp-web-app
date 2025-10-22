@@ -8,18 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.5.6] - 2025-01-22
 
 ### Fixed
-- **Critical: Failed Server Isolation**: External MCP clients are now only added to the client map after successful initialization
-  - Previously, clients were added before initialization, causing failed clients to block all tools
-  - Failed servers are now isolated and don't affect successfully connected servers
-  - Successful servers work independently even if other servers fail to connect
-  - Added console warning when external server fails to connect for better debugging
-  - All successfully connected tools and resources remain accessible
+- **Critical: Partial MCP Server Failures Breaking All Tools**: Fixed issue where failure of one external MCP server would prevent all external tools from working
+  - External clients now added to Map only after successful initialization
+  - Failed connections are properly logged with warnings but don't block successful servers
+  - Tools and resources from successfully connected servers remain fully functional
+  - Graceful degradation: system works with partial connectivity
+  - Status correctly shows `partial_connected` when some servers fail
 
 ### Technical
-- Moved `externalClients.current.set(srv.id, ec)` after successful `await ec.initialize()`
-- Added `console.warn()` for failed server connections
-- Failed clients are never added to the client map, preventing broken tool calls
-- Successful servers are fully operational even with partial connectivity
+- Moved `externalClients.current.set()` to execute only after successful `initialize()`
+- Added console warnings for failed server connections with server ID and error message
+- Each external server initializes independently in try-catch block
+- Failed servers return `{ client: null, tools: [], resources: [], error }` without affecting others
 
 ## [1.5.5] - 2025-01-22
 
