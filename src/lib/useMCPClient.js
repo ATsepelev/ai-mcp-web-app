@@ -131,7 +131,6 @@ export const useMCPClient = (options = {}) => {
             } else {
               ec = new MCPSseClient(srv.url, { headers: srv.headers, withCredentials: srv.withCredentials, postUrl: srv.postUrl, timeoutMs: srv.timeoutMs });
             }
-            externalClients.current.set(srv.id, ec);
             await ec.initialize();
             const extTools = await ec.loadTools();
             let extResources = [];
@@ -140,8 +139,12 @@ export const useMCPClient = (options = {}) => {
             } catch (e) {
               // Resources may not be supported by all servers
             }
+            // Only add to map if initialization was successful
+            externalClients.current.set(srv.id, ec);
             return { id: srv.id, client: ec, tools: extTools, resources: extResources };
           } catch (e) {
+            // Do NOT add failed client to the map
+            console.warn(`[MCP] External server '${srv.id}' failed to connect:`, e);
             return { id: srv.id, client: null, tools: [], resources: [], error: e };
           }
         });
