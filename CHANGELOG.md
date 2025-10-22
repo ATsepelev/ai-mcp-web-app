@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.11] - 2025-01-22
+
+### Fixed
+- **Critical: Client Initialize Race Condition**: Fixed infinite hang when client initializes before server is ready
+  - Added timeout (5 seconds) to prevent infinite waiting
+  - Added retry logic with exponential backoff (3 attempts: 100ms, 200ms, 400ms delays)
+  - Client now successfully connects even if server initializes slightly later
+  - Logs retry attempts for debugging
+  - Prevents "connecting" status getting stuck forever
+  - Fixes the root cause of tools not loading
+
+### Technical
+- Modified `MCPClient.initialize()` to use `Promise.race()` with timeout
+- Retry loop with exponential backoff for race condition tolerance
+- Clear error messages after all retry attempts exhausted
+- Race condition between `useMCPClient` and `useMCPServer` now handled gracefully
+
 ## [1.5.10] - 2025-01-22
 
 ### Fixed

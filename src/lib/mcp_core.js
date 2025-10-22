@@ -362,23 +362,45 @@ class MCPClient extends MCPBase {
     this.resources = [];
   }
 
-  async initialize() {
+  async initialize(retries = 3, delayMs = 100) {
     if (this.initialized) return;
 
-    const response = await this.sendRequest('mcp.initialize', {
-      version: MCP_PROTOCOL_VERSION,
-      capabilities: {
-        tools: {},
-        resources: {}
+    // Retry logic to handle race condition when server isn't ready yet
+    let lastError;
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        // Add timeout to prevent infinite hang
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Initialize timeout')), 5000)
+        );
+        
+        const initPromise = this.sendRequest('mcp.initialize', {
+          version: MCP_PROTOCOL_VERSION,
+          capabilities: {
+            tools: {},
+            resources: {}
+          }
+        });
+
+        const response = await Promise.race([initPromise, timeoutPromise]);
+
+        if (response.version !== MCP_PROTOCOL_VERSION) {
+          throw new Error(`Protocol version mismatch. Server: ${response.version}, Client: ${MCP_PROTOCOL_VERSION}`);
+        }
+
+        this.initialized = true;
+        return response;
+      } catch (error) {
+        lastError = error;
+        if (attempt < retries - 1) {
+          console.log(`[MCP Client] Initialize attempt ${attempt + 1} failed, retrying in ${delayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          delayMs *= 2; // Exponential backoff
+        }
       }
-    });
-
-    if (response.version !== MCP_PROTOCOL_VERSION) {
-      throw new Error(`Protocol version mismatch. Server: ${response.version}, Client: ${MCP_PROTOCOL_VERSION}`);
     }
-
-    this.initialized = true;
-    return response;
+    
+    throw new Error(`Failed to initialize after ${retries} attempts: ${lastError.message}`);
   }
 
   async loadTools() {
