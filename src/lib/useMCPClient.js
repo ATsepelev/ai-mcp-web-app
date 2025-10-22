@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { MCP, MCPWebSocketClient, MCPSseClient } from './mcp_core';
 
 /**
@@ -18,6 +18,13 @@ export const useMCPClient = (options = {}) => {
   const { mcpServers = {}, envVars = {}, allowedTools = null, blockedTools = [], externalServers = [] } = options;
   const externalClients = useRef(new Map());
   const initializingRef = useRef(false);
+  
+  // Memoize dependencies to prevent unnecessary re-initialization
+  const mcpServersJson = useMemo(() => JSON.stringify(mcpServers), [mcpServers]);
+  const envVarsJson = useMemo(() => JSON.stringify(envVars), [envVars]);
+  const allowedToolsJson = useMemo(() => JSON.stringify(allowedTools), [allowedTools]);
+  const blockedToolsJson = useMemo(() => JSON.stringify(blockedTools), [blockedTools]);
+  const externalServersJson = useMemo(() => JSON.stringify(externalServers), [externalServers]);
 
   // Helper function to substitute environment variables
   const substituteEnvVars = (value, envVars) => {
@@ -279,7 +286,7 @@ export const useMCPClient = (options = {}) => {
       }
       externalClients.current.clear();
     };
-  }, [mcpServers, envVars, allowedTools, blockedTools, externalServers]);
+  }, [mcpServersJson, envVarsJson, allowedToolsJson, blockedToolsJson, externalServersJson]);
 
   // Stable callback functions to prevent unnecessary re-renders
   const callTool = useCallback((name, args) => {

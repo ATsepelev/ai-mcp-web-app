@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.5] - 2025-01-22
+
+### Fixed
+- **Dependency Stabilization**: Memoize useMCPClient dependencies to prevent unnecessary reinitialization
+  - Added JSON.stringify memoization for mcpServers, envVars, allowedTools, blockedTools, externalServers
+  - Dependencies now compared by value, not by reference
+  - Prevents client reinitialization when parent component passes new object/array instances with same data
+  - Significantly reduces unnecessary useEffect triggers
+  - External MCP clients remain connected when widget state changes
+
+### Technical
+- All object/array dependencies memoized via `JSON.stringify`
+- useEffect dependencies changed to JSON strings for deep comparison
+- No client disconnection when equivalent data is passed with different references
+
 ## [1.5.4] - 2025-01-22
 
 ### Fixed
