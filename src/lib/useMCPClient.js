@@ -84,16 +84,21 @@ export const useMCPClient = (options = {}) => {
   };
 
   useEffect(() => {
+    console.log('[MCP] useEffect triggered. Client exists:', !!client, 'Initializing:', initializingRef.current);
+    
     // Prevent concurrent initializations
     if (initializingRef.current) {
+      console.log('[MCP] Already initializing, skipping');
       return;
     }
     
     // Only initialize if client doesn't exist
     if (client) {
+      console.log('[MCP] Client already exists, skipping initialization');
       return;
     }
     
+    console.log('[MCP] Starting client initialization...');
     initializingRef.current = true;
     
     // Flag to cancel initialization if component unmounts or dependencies change
@@ -101,41 +106,25 @@ export const useMCPClient = (options = {}) => {
     
     const initClient = async () => {
       try {
-        console.log('[MCP] Starting client initialization...');
         setStatus('connecting');
+        const internalClient = MCP.createClient();
+
+        // Initialize protocol
+        await internalClient.initialize();
+
+        // Load tools
+        const internalTools = await internalClient.loadTools();
         
-        // Initialize internal client with error handling
-        let internalClient;
-        let internalTools = [];
+        // Load resources
         let internalResources = [];
-        
         try {
-          console.log('[MCP] Creating internal client...');
-          internalClient = MCP.createClient();
-          
-          console.log('[MCP] Initializing internal client protocol...');
-          await internalClient.initialize();
-          
-          console.log('[MCP] Loading internal tools...');
-          internalTools = await internalClient.loadTools();
-          console.log(`[MCP] Loaded ${internalTools.length} internal tools`);
-          
-          try {
-            console.log('[MCP] Loading internal resources...');
-            internalResources = await internalClient.loadResources();
-            console.log(`[MCP] Loaded ${internalResources.length} internal resources`);
-          } catch (e) {
-            console.warn('[MCP] Internal resources not supported:', e.message);
-          }
+          internalResources = await internalClient.loadResources();
         } catch (e) {
-          console.error('[MCP] Internal client initialization failed:', e);
-          console.warn('[MCP] Continuing with empty internal client - external servers may still work');
-          // Continue with empty internal client - external servers may still work
+          // Resources may not be supported
         }
 
         // Get processed server array
         const serverArray = getServerArray();
-        console.log(`[MCP] Found ${serverArray.length} external servers to connect`);
 
         // Store all external results (will be populated incrementally)
         const externalResultsMap = new Map();
@@ -183,13 +172,22 @@ export const useMCPClient = (options = {}) => {
           // Apply tool filtering
           const filteredTools = filterTools(mergedTools, allowedTools, blockedTools);
 
+          console.log('[MCP] Updating state:', {
+            mergedTools: mergedTools.length,
+            filteredTools: filteredTools.length,
+            mergedResources: mergedResources.length,
+            externalResults: externalResults.length
+          });
+
           // Update state
           setTools(filteredTools.map(t => ({ name: t.qualifiedName, description: t.description, parameters: t.parameters })));
           setResources(mergedResources.map(r => ({ uri: r.qualifiedUri, name: r.name, description: r.description, mimeType: r.mimeType, annotations: r.annotations })));
           
           const anyExternalErrors = externalResults.some(r => r.error);
           const anyConnected = externalResults.some(r => r.client);
-          setStatus(anyExternalErrors && anyConnected ? 'partial_connected' : 'connected');
+          const newStatus = anyExternalErrors && anyConnected ? 'partial_connected' : 'connected';
+          console.log('[MCP] Setting status:', newStatus);
+          setStatus(newStatus);
         };
 
         // Initialize routed client immediately with internal tools
@@ -206,7 +204,6 @@ export const useMCPClient = (options = {}) => {
             const externalResults = Array.from(externalResultsMap.values());
             const externalMatches = externalResults.filter(r => r.client && r.tools.some(t => t.name === name));
             if (internalHas && externalMatches.length === 0) {
-              if (!internalClient) throw new Error('Internal client not initialized');
               return internalClient.callTool(name, args);
             }
             if (!internalHas && externalMatches.length === 1) {
@@ -235,7 +232,6 @@ export const useMCPClient = (options = {}) => {
             const externalResults = Array.from(externalResultsMap.values());
             const externalMatches = externalResults.filter(r => r.client && r.resources && r.resources.some(res => res.uri === uri));
             if (internalHas && externalMatches.length === 0) {
-              if (!internalClient) throw new Error('Internal client not initialized');
               return internalClient.readResource(uri);
             }
             if (!internalHas && externalMatches.length === 1) {
@@ -253,100 +249,97 @@ export const useMCPClient = (options = {}) => {
           }
         };
 
-        // Check if cancelled before setting client
-        if (cancelled) {
-          console.log('[MCP] Initialization cancelled before client setup');
-          initializingRef.current = false;
-          return;
-        }
-        
         // Set client immediately with internal tools
-        console.log('[MCP] Setting up routed client...');
         setClient(routedClient);
-        console.log('[MCP] Updating merged state with initial data...');
-        updateMergedState();
-        console.log('[MCP] Client initialized successfully!');
-
-        // Initialize external clients with timeout and process as they complete
-        const DEFAULT_TIMEOUT = 10000; // 10 seconds
         
-        serverArray.forEach((srv) => {
-          const timeout = srv.timeoutMs || DEFAULT_TIMEOUT;
+        console.log('[MCP] Client initialized. Internal tools:', internalTools.length, 'Internal resources:', internalResources.length);
+        
+        // If no external servers, set connected status immediately
+        if (serverArray.length === 0) {
+          console.log('[MCP] No external servers configured');
+          updateMergedState();
+          initializingRef.current = false;
+        } else {
+          // Set connecting status for external servers
+          setStatus('connecting');
           
-          const initPromise = (async () => {
-            try {
-              const transport = (srv.transport || (srv.url.startsWith('wss:') ? 'ws' : 'sse'));
-              let ec;
-              if (transport === 'ws') {
-                ec = new MCPWebSocketClient(srv.url, { headers: srv.headers, protocols: srv.protocols });
-              } else {
-                ec = new MCPSseClient(srv.url, { headers: srv.headers, withCredentials: srv.withCredentials, postUrl: srv.postUrl, timeoutMs: timeout });
-              }
-              
-              // Race between initialization and timeout
-              const result = await Promise.race([
-                (async () => {
-                  await ec.initialize();
-                  const extTools = await ec.loadTools();
-                  let extResources = [];
-                  try {
-                    extResources = await ec.loadResources();
-                  } catch (e) {
-                    // Resources may not be supported
-                  }
-                  return { success: true, tools: extTools, resources: extResources, client: ec };
-                })(),
-                new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error(`Connection timeout (${timeout}ms)`)), timeout)
-                )
-              ]);
-              
-              if (result.success) {
-                // Only add to map after successful initialization
-                externalClients.current.set(srv.id, result.client);
-                externalResultsMap.set(srv.id, { 
-                  id: srv.id, 
-                  client: result.client, 
-                  tools: result.tools, 
-                  resources: result.resources 
-                });
-                console.log(`[MCP] Connected to external server '${srv.id}'`);
-              }
-            } catch (e) {
-              console.warn(`[MCP] Failed to connect to external server '${srv.id}':`, e.message);
-              externalResultsMap.set(srv.id, { 
-                id: srv.id, 
-                client: null, 
-                tools: [], 
-                resources: [], 
-                error: e 
-              });
+          // Initialize external clients with timeout and process as they complete
+          const DEFAULT_TIMEOUT = 10000; // 10 seconds
+          
+          serverArray.forEach((srv) => {
+            // Validate server config
+            if (!srv || !srv.id || !srv.url) {
+              console.warn('[MCP] Invalid server config:', srv);
+              return;
             }
             
-            // Update state after each server completes (success or failure)
-            if (!cancelled) {
-              updateMergedState();
-            }
-          })();
-        });
-
-        initializingRef.current = false;
+            const timeout = srv.timeoutMs || DEFAULT_TIMEOUT;
+            
+            // Fire and forget - errors are caught inside
+            (async () => {
+              try {
+                const transport = (srv.transport || (srv.url && srv.url.startsWith('wss:') ? 'ws' : 'sse'));
+                let ec;
+                if (transport === 'ws') {
+                  ec = new MCPWebSocketClient(srv.url, { headers: srv.headers, protocols: srv.protocols });
+                } else {
+                  ec = new MCPSseClient(srv.url, { headers: srv.headers, withCredentials: srv.withCredentials, postUrl: srv.postUrl, timeoutMs: timeout });
+                }
+                
+                // Race between initialization and timeout
+                const result = await Promise.race([
+                  (async () => {
+                    await ec.initialize();
+                    const extTools = await ec.loadTools();
+                    let extResources = [];
+                    try {
+                      extResources = await ec.loadResources();
+                    } catch (e) {
+                      // Resources may not be supported
+                    }
+                    return { success: true, tools: extTools, resources: extResources, client: ec };
+                  })(),
+                  new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error(`Connection timeout (${timeout}ms)`)), timeout)
+                  )
+                ]);
+                
+                if (result.success) {
+                  // Only add to map after successful initialization
+                  externalClients.current.set(srv.id, result.client);
+                  externalResultsMap.set(srv.id, { 
+                    id: srv.id, 
+                    client: result.client, 
+                    tools: result.tools, 
+                    resources: result.resources 
+                  });
+                  console.log(`[MCP] Connected to external server '${srv.id}'`);
+                }
+              } catch (e) {
+                console.warn(`[MCP] Failed to connect to external server '${srv.id}':`, e.message);
+                externalResultsMap.set(srv.id, { 
+                  id: srv.id, 
+                  client: null, 
+                  tools: [], 
+                  resources: [], 
+                  error: e 
+                });
+              }
+              
+              // Update state after each server completes (success or failure)
+              if (!cancelled) {
+                updateMergedState();
+              }
+            })().catch(err => {
+              // Catch any unhandled errors from the async IIFE
+              console.error(`[MCP] Unhandled error for server '${srv.id}':`, err);
+            });
+          });
+          
+          initializingRef.current = false;
+        }
       } catch (error) {
         console.error('[MCP] Client initialization failed:', error);
-        
-        // Create minimal client even on critical failure
-        const fallbackClient = {
-          callTool: async () => {
-            throw new Error('MCP client failed to initialize');
-          },
-          readResource: async () => {
-            throw new Error('MCP client failed to initialize');
-          }
-        };
-        
-        setClient(fallbackClient);
-        setTools([]);
-        setResources([]);
         setStatus('error');
         initializingRef.current = false;
       }
@@ -381,7 +374,7 @@ export const useMCPClient = (options = {}) => {
     return client.readResource(uri);
   }, [client]);
 
-  return {
+  const returnValue = {
     client,
     tools,
     resources,
@@ -389,4 +382,14 @@ export const useMCPClient = (options = {}) => {
     callTool,
     readResource
   };
+  
+  // Log on every render to track state changes
+  console.log('[MCP] useMCPClient returning:', {
+    hasClient: !!client,
+    toolsCount: tools.length,
+    resourcesCount: resources.length,
+    status
+  });
+  
+  return returnValue;
 };

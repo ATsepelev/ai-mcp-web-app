@@ -10,11 +10,17 @@ let serverInstance = null;
  */
 export const useMCPServer = (tools = [], resources = []) => {
   useEffect(() => {
+    console.log('[MCP Server] useEffect triggered. Tools:', tools.length, 'Resources:', resources.length, 'Server exists:', !!serverInstance);
+    
     if (!serverInstance) {
+      console.log('[MCP Server] Creating new server instance');
       serverInstance = MCP.createServer();
 
       // Register tools
+      console.log('[MCP Server] Registering', tools.length, 'tools');
       tools.forEach(tool => {
+        const toolName = tool.function?.name || tool.name;
+        console.log('[MCP Server] Registering tool:', toolName);
         serverInstance.registerTool({
           name: tool.function.name,
           description: tool.function.description,
@@ -24,7 +30,9 @@ export const useMCPServer = (tools = [], resources = []) => {
       });
 
       // Register resources (Spec 2025-06-18)
+      console.log('[MCP Server] Registering', resources.length, 'resources');
       resources.forEach(resource => {
+        console.log('[MCP Server] Registering resource:', resource.uri);
         serverInstance.registerResource({
           uri: resource.uri,
           name: resource.name,
@@ -36,6 +44,10 @@ export const useMCPServer = (tools = [], resources = []) => {
           handler: resource.handler
         });
       });
+      
+      console.log('[MCP Server] Server initialized with', serverInstance.tools.length, 'tools and', serverInstance.resources.length, 'resources');
+    } else {
+      console.log('[MCP Server] Server already exists, skipping initialization');
     }
 
     return () => {
@@ -43,5 +55,6 @@ export const useMCPServer = (tools = [], resources = []) => {
     };
   }, [tools, resources]);
 
+  console.log('[MCP Server] Returning server instance:', !!serverInstance);
   return serverInstance;
 };
