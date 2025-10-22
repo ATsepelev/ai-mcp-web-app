@@ -614,7 +614,9 @@ class MCPWebSocketClient extends MCPExternalBaseClient {
     }
     // Reject all pending requests
     for (const [id, pending] of this.pendingRequests.entries()) {
-      pending.reject(new Error('Client disconnected'));
+      if (pending && typeof pending.reject === 'function') {
+        pending.reject(new Error('Client disconnected'));
+      }
     }
     this.pendingRequests.clear();
   }
@@ -751,7 +753,9 @@ class MCPSseClient extends MCPExternalBaseClient {
     }
     // Reject all pending requests
     for (const [id, pending] of this.pendingRequests.entries()) {
-      pending.reject(new Error('Client disconnected'));
+      if (pending && typeof pending.reject === 'function') {
+        pending.reject(new Error('Client disconnected'));
+      }
     }
     this.pendingRequests.clear();
   }

@@ -162,3 +162,31 @@ const blockedTools = useMemo(() => [], []);
 
 Это блокер для production использования с внешними серверами.
 
+---
+
+## 🔴 Дополнительная проблема найдена (v1.5.1)
+
+### TypeError в disconnect(): pending.reject is not a function
+
+**Причина:**
+В SSE клиенте `sendRequest()` сохраняет пустой объект `{}` в `pendingRequests` (строка 829):
+```javascript
+this.pendingRequests.set(payload.id, {});
+```
+
+Позже, для SSE-based запросов, устанавливается правильный объект с `{ resolve, reject }` (строка 915).
+
+При вызове `disconnect()` попытка вызвать `pending.reject()` на пустом объекте вызывает ошибку.
+
+**Решение:**
+Добавить проверку перед вызовом `reject()`:
+```javascript
+for (const [id, pending] of this.pendingRequests.entries()) {
+  if (pending && typeof pending.reject === 'function') {
+    pending.reject(new Error('Client disconnected'));
+  }
+}
+```
+
+**Статус:** ✅ Исправлено в v1.5.1
+

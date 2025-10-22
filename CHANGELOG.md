@@ -14,11 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added cleanup in `useMCPClient` to disconnect clients on unmount or prop changes
   - Prevents exponential growth of reconnection attempts when typing or changing props
   - Fixes browser freeze when external servers are unavailable
+- **TypeError in disconnect()**: Fixed `pending.reject is not a function` error
+  - Added type check before calling `reject()` on pending requests
+  - SSE client stores empty objects `{}` for some requests, now handles gracefully
 
 ### Technical
 - `MCPWebSocketClient` now has `disconnect()` method and checks `shouldReconnect` flag
 - `MCPSseClient` now has `disconnect()` method and checks `shouldReconnect` flag
 - `useMCPClient` cleanup properly disconnects all external clients
+- Pending requests validation before rejection to handle empty objects
 - All pending requests are rejected when client disconnects
 
 ## [1.5.0] - 2025-01-22
