@@ -121,53 +121,21 @@ export const useMCPClient = (options = {}) => {
         // Get processed server array
         const serverArray = getServerArray();
 
-        // Initialize external clients in parallel
-        const externalInitPromises = serverArray.map(async (srv) => {
-          try {
-            const transport = (srv.transport || (srv.url.startsWith('wss:') ? 'ws' : 'sse'));
-            let ec;
-            if (transport === 'ws') {
-              ec = new MCPWebSocketClient(srv.url, { headers: srv.headers, protocols: srv.protocols });
-            } else {
-              ec = new MCPSseClient(srv.url, { headers: srv.headers, withCredentials: srv.withCredentials, postUrl: srv.postUrl, timeoutMs: srv.timeoutMs });
-            }
-            
-            // Initialize before adding to map
-            await ec.initialize();
-            const extTools = await ec.loadTools();
-            let extResources = [];
-            try {
-              extResources = await ec.loadResources();
-            } catch (e) {
-              // Resources may not be supported by all servers
-            }
-            
-            // Only add to map after successful initialization
-            externalClients.current.set(srv.id, ec);
-            
-            return { id: srv.id, client: ec, tools: extTools, resources: extResources };
-          } catch (e) {
-            console.warn(`[MCP] Failed to connect to external server '${srv.id}':`, e.message);
-            return { id: srv.id, client: null, tools: [], resources: [], error: e };
-          }
-        });
-
-        const externalResults = await Promise.all(externalInitPromises);
-
-        // Check if cancelled before processing results
-        if (cancelled) return;
-
-        // Merge tool catalogs; qualify external tool names as id.tool
+        // Store all external results (will be populated incrementally)
+        const externalResultsMap = new Map();
+        
+        // Helper to merge and update state
+        const updateMergedState = () => {
+          const externalResults = Array.from(externalResultsMap.values());
+          
+          // Merge tool catalogs
         const mergedTools = [];
-        // internal first (source: internal)
         for (const t of internalTools) {
-          // Internal uses our legacy shape: {name, description, parameters}
           mergedTools.push({ ...t, source: 'internal', qualifiedName: t.name, parameters: t.parameters });
         }
         for (const res of externalResults) {
           if (res && res.tools && res.client) {
             for (const t of res.tools) {
-              // Normalize spec fields to our consumer shape
               const name = t.name || t.tool || t.id;
               const description = t.description || t.title || '';
               const parameters = t.parameters || t.inputSchema || {};
@@ -176,33 +144,41 @@ export const useMCPClient = (options = {}) => {
           }
         }
 
-        // Merge resource catalogs; qualify external resource URIs as id_uri
-        // Spec 2025-06-18: include title, size, and annotations
-        const mergedResources = [];
-        // internal first (source: internal)
-        for (const r of internalResources) {
-          mergedResources.push({ ...r, source: 'internal', qualifiedUri: r.uri });
-        }
-        for (const res of externalResults) {
-          if (res && res.resources && res.client) {
-            for (const r of res.resources) {
-              // Normalize resource fields (Spec 2025-06-18)
-              const uri = r.uri;
-              const name = r.name || uri;
-              const title = r.title || name;                    // Spec 2025-06-18
-              const description = r.description || '';
-              const mimeType = r.mimeType || 'application/json';
-              const size = r.size;                              // Spec 2025-06-18
-              const annotations = r.annotations || {};
-              mergedResources.push({ uri, name, title, description, mimeType, size, annotations, source: res.id, qualifiedUri: `${res.id}_${uri}` });
+          // Merge resource catalogs
+          const mergedResources = [];
+          for (const r of internalResources) {
+            mergedResources.push({ ...r, source: 'internal', qualifiedUri: r.uri });
+          }
+          for (const res of externalResults) {
+            if (res && res.resources && res.client) {
+              for (const r of res.resources) {
+                const uri = r.uri;
+                const name = r.name || uri;
+                const title = r.title || name;
+                const description = r.description || '';
+                const mimeType = r.mimeType || 'application/json';
+                const size = r.size;
+                const annotations = r.annotations || {};
+                mergedResources.push({ uri, name, title, description, mimeType, size, annotations, source: res.id, qualifiedUri: `${res.id}_${uri}` });
+              }
             }
           }
-        }
 
-        // Provide a facade client that routes calls
+          // Apply tool filtering
+          const filteredTools = filterTools(mergedTools, allowedTools, blockedTools);
+
+          // Update state
+          setTools(filteredTools.map(t => ({ name: t.qualifiedName, description: t.description, parameters: t.parameters })));
+          setResources(mergedResources.map(r => ({ uri: r.qualifiedUri, name: r.name, description: r.description, mimeType: r.mimeType, annotations: r.annotations })));
+          
+          const anyExternalErrors = externalResults.some(r => r.error);
+          const anyConnected = externalResults.some(r => r.client);
+          setStatus(anyExternalErrors && anyConnected ? 'partial_connected' : 'connected');
+        };
+
+        // Initialize routed client immediately with internal tools
         const routedClient = {
           callTool: async (name, args) => {
-            // If qualified: id_tool
             if (typeof name === 'string' && name.includes('_')) {
               const [sid, ...rest] = name.split('_');
               const tool = rest.join('_');
@@ -210,8 +186,8 @@ export const useMCPClient = (options = {}) => {
               if (!ext) throw new Error(`Unknown external server '${sid}'`);
               return ext.callTool(tool, args);
             }
-            // Bare name: try internal first; if ambiguous across externals, error
             const internalHas = internalTools.some(t => t.name === name);
+            const externalResults = Array.from(externalResultsMap.values());
             const externalMatches = externalResults.filter(r => r.client && r.tools.some(t => t.name === name));
             if (internalHas && externalMatches.length === 0) {
               return internalClient.callTool(name, args);
@@ -230,7 +206,6 @@ export const useMCPClient = (options = {}) => {
             throw new Error(`Tool '${name}' not found.`);
           },
           readResource: async (uri) => {
-            // If qualified: id_uri
             if (typeof uri === 'string' && uri.includes('_')) {
               const parts = uri.split('_');
               const sid = parts[0];
@@ -239,8 +214,8 @@ export const useMCPClient = (options = {}) => {
               if (!ext) throw new Error(`Unknown external server '${sid}'`);
               return ext.readResource(resourceUri);
             }
-            // Bare URI: try internal first; if ambiguous across externals, error
             const internalHas = internalResources.some(r => r.uri === uri);
+            const externalResults = Array.from(externalResultsMap.values());
             const externalMatches = externalResults.filter(r => r.client && r.resources && r.resources.some(res => res.uri === uri));
             if (internalHas && externalMatches.length === 0) {
               return internalClient.readResource(uri);
@@ -260,14 +235,73 @@ export const useMCPClient = (options = {}) => {
           }
         };
 
-        // Apply tool filtering
-        const filteredTools = filterTools(mergedTools, allowedTools, blockedTools);
-
-        setTools(filteredTools.map(t => ({ name: t.qualifiedName, description: t.description, parameters: t.parameters })));
-        setResources(mergedResources.map(r => ({ uri: r.qualifiedUri, name: r.name, description: r.description, mimeType: r.mimeType, annotations: r.annotations })));
+        // Set client immediately with internal tools
         setClient(routedClient);
-        const anyExternalErrors = externalResults.some(r => r.error);
-        setStatus(anyExternalErrors && externalResults.some(r => r.client) ? 'partial_connected' : 'connected');
+        updateMergedState();
+
+        // Initialize external clients with timeout and process as they complete
+        const DEFAULT_TIMEOUT = 10000; // 10 seconds
+        
+        serverArray.forEach((srv) => {
+          const timeout = srv.timeoutMs || DEFAULT_TIMEOUT;
+          
+          const initPromise = (async () => {
+            try {
+              const transport = (srv.transport || (srv.url.startsWith('wss:') ? 'ws' : 'sse'));
+              let ec;
+              if (transport === 'ws') {
+                ec = new MCPWebSocketClient(srv.url, { headers: srv.headers, protocols: srv.protocols });
+              } else {
+                ec = new MCPSseClient(srv.url, { headers: srv.headers, withCredentials: srv.withCredentials, postUrl: srv.postUrl, timeoutMs: timeout });
+              }
+              
+              // Race between initialization and timeout
+              const result = await Promise.race([
+                (async () => {
+                  await ec.initialize();
+                  const extTools = await ec.loadTools();
+                  let extResources = [];
+                  try {
+                    extResources = await ec.loadResources();
+                  } catch (e) {
+                    // Resources may not be supported
+                  }
+                  return { success: true, tools: extTools, resources: extResources, client: ec };
+                })(),
+                new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error(`Connection timeout (${timeout}ms)`)), timeout)
+                )
+              ]);
+              
+              if (result.success) {
+                // Only add to map after successful initialization
+                externalClients.current.set(srv.id, result.client);
+                externalResultsMap.set(srv.id, { 
+                  id: srv.id, 
+                  client: result.client, 
+                  tools: result.tools, 
+                  resources: result.resources 
+                });
+                console.log(`[MCP] Connected to external server '${srv.id}'`);
+              }
+            } catch (e) {
+              console.warn(`[MCP] Failed to connect to external server '${srv.id}':`, e.message);
+              externalResultsMap.set(srv.id, { 
+                id: srv.id, 
+                client: null, 
+                tools: [], 
+                resources: [], 
+                error: e 
+              });
+            }
+            
+            // Update state after each server completes (success or failure)
+            if (!cancelled) {
+              updateMergedState();
+            }
+          })();
+        });
+
         initializingRef.current = false;
       } catch (error) {
         console.error('[MCP] Client initialization failed:', error);
@@ -277,7 +311,7 @@ export const useMCPClient = (options = {}) => {
     };
 
     // Only initialize when client doesn't exist
-    initClient();
+      initClient();
 
     return () => {
       // Cancel ongoing initialization
