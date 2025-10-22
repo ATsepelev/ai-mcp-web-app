@@ -101,25 +101,41 @@ export const useMCPClient = (options = {}) => {
     
     const initClient = async () => {
       try {
+        console.log('[MCP] Starting client initialization...');
         setStatus('connecting');
-        const internalClient = MCP.createClient();
-
-        // Initialize protocol
-        await internalClient.initialize();
-
-        // Load tools
-        const internalTools = await internalClient.loadTools();
         
-        // Load resources
+        // Initialize internal client with error handling
+        let internalClient;
+        let internalTools = [];
         let internalResources = [];
+        
         try {
-          internalResources = await internalClient.loadResources();
+          console.log('[MCP] Creating internal client...');
+          internalClient = MCP.createClient();
+          
+          console.log('[MCP] Initializing internal client protocol...');
+          await internalClient.initialize();
+          
+          console.log('[MCP] Loading internal tools...');
+          internalTools = await internalClient.loadTools();
+          console.log(`[MCP] Loaded ${internalTools.length} internal tools`);
+          
+          try {
+            console.log('[MCP] Loading internal resources...');
+            internalResources = await internalClient.loadResources();
+            console.log(`[MCP] Loaded ${internalResources.length} internal resources`);
+          } catch (e) {
+            console.warn('[MCP] Internal resources not supported:', e.message);
+          }
         } catch (e) {
-          // Resources may not be supported
+          console.error('[MCP] Internal client initialization failed:', e);
+          console.warn('[MCP] Continuing with empty internal client - external servers may still work');
+          // Continue with empty internal client - external servers may still work
         }
 
         // Get processed server array
         const serverArray = getServerArray();
+        console.log(`[MCP] Found ${serverArray.length} external servers to connect`);
 
         // Store all external results (will be populated incrementally)
         const externalResultsMap = new Map();
@@ -190,6 +206,7 @@ export const useMCPClient = (options = {}) => {
             const externalResults = Array.from(externalResultsMap.values());
             const externalMatches = externalResults.filter(r => r.client && r.tools.some(t => t.name === name));
             if (internalHas && externalMatches.length === 0) {
+              if (!internalClient) throw new Error('Internal client not initialized');
               return internalClient.callTool(name, args);
             }
             if (!internalHas && externalMatches.length === 1) {
@@ -218,6 +235,7 @@ export const useMCPClient = (options = {}) => {
             const externalResults = Array.from(externalResultsMap.values());
             const externalMatches = externalResults.filter(r => r.client && r.resources && r.resources.some(res => res.uri === uri));
             if (internalHas && externalMatches.length === 0) {
+              if (!internalClient) throw new Error('Internal client not initialized');
               return internalClient.readResource(uri);
             }
             if (!internalHas && externalMatches.length === 1) {
@@ -235,9 +253,19 @@ export const useMCPClient = (options = {}) => {
           }
         };
 
+        // Check if cancelled before setting client
+        if (cancelled) {
+          console.log('[MCP] Initialization cancelled before client setup');
+          initializingRef.current = false;
+          return;
+        }
+        
         // Set client immediately with internal tools
+        console.log('[MCP] Setting up routed client...');
         setClient(routedClient);
+        console.log('[MCP] Updating merged state with initial data...');
         updateMergedState();
+        console.log('[MCP] Client initialized successfully!');
 
         // Initialize external clients with timeout and process as they complete
         const DEFAULT_TIMEOUT = 10000; // 10 seconds
@@ -305,6 +333,20 @@ export const useMCPClient = (options = {}) => {
         initializingRef.current = false;
       } catch (error) {
         console.error('[MCP] Client initialization failed:', error);
+        
+        // Create minimal client even on critical failure
+        const fallbackClient = {
+          callTool: async () => {
+            throw new Error('MCP client failed to initialize');
+          },
+          readResource: async () => {
+            throw new Error('MCP client failed to initialize');
+          }
+        };
+        
+        setClient(fallbackClient);
+        setTools([]);
+        setResources([]);
         setStatus('error');
         initializingRef.current = false;
       }

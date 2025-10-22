@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.8] - 2025-01-22
+
+### Fixed
+- **Critical: MCP Client Not Starting**: Fixed cases where MCP client would completely fail to initialize
+  - Internal client errors no longer block entire initialization
+  - Client now creates even if internal server fails (external servers can still work)
+  - Added fallback client creation in catch block to ensure client is always set
+  - Added cancellation checks to prevent race conditions during unmount
+  - Client state always set (either functional or fallback with error messages)
+  - Fixed `initializingRef` not being reset, which prevented retry attempts
+
+### Added
+- **Comprehensive Diagnostic Logging**: Added detailed console logs for debugging initialization issues
+  - Logs each initialization step: creating client, loading tools, loading resources
+  - Logs external server connection attempts and results
+  - Logs counts of loaded tools and resources
+  - Easier to diagnose where initialization fails
+  - All logs prefixed with `[MCP]` for easy filtering
+
+### Changed
+- **Graceful Degradation**: System continues working even with partial failures
+  - Internal client failure doesn't prevent external servers from working
+  - External tool/resource errors don't affect internal tools
+  - Each component (internal client, each external server) fails independently
+  - Always provides functional client object (even if it only throws errors)
+
+### Technical
+- Wrapped internal client initialization in separate try-catch
+- Added null checks for `internalClient` in routing logic
+- Fallback client returns clear error messages when initialization failed
+- Check `cancelled` flag before `setClient()` to avoid race conditions
+- `initializingRef` properly reset in all code paths (success, error, cancellation)
+
 ## [1.5.7] - 2025-01-22
 
 ### Fixed
