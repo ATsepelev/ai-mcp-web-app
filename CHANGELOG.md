@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2025-01-26
+
+### Added
+- **Chat History Persistence**: Automatic chat history storage using IndexedDB
+  - History persists across page reloads
+  - Per-configuration storage (separate for each model + baseUrl + apiKey combination)
+  - Age-based filtering with configurable depth (default: 24 hours)
+  - Automatic cleanup of old messages
+  - Context size aware (respects `maxContextSize` parameter)
+  - Enabled by default with `persistChatHistory={true}`
+  
+- **New Props for ChatWidget**:
+  - `persistChatHistory` (boolean, default: `true`) - Enable/disable history persistence
+  - `historyDepthHours` (number, default: `24`) - Maximum age of messages to keep (in hours)
+  
+- **New Utility Module**: `chatHistoryStorage.js` with public API:
+  - `generateStorageKey(modelName, baseUrl, apiKey)` - Generate unique storage keys
+  - `loadMessages(storageKey, historyDepthHours, maxContextSize)` - Load history
+  - `saveMessages(storageKey, messages, maxContextSize)` - Save history
+  - `clearHistory(storageKey)` - Clear history for specific configuration
+  - `clearAllHistory()` - Clear all stored history (for maintenance)
+
+### Changed
+- History automatically saved after each message exchange
+- "Clear Chat" button now also clears history from IndexedDB
+- All exports added to main index for advanced users
+
+### Fixed
+- Graceful degradation when IndexedDB is unavailable (e.g., private browsing mode)
+- All IndexedDB operations wrapped in error handlers
+- No breaking changes - fully backward compatible
+
+### Technical
+- IndexedDB database: `chatHistoryDB` with object store `conversations`
+- Messages stored with timestamps for age filtering
+- Only user and assistant messages stored (system messages excluded)
+- Storage key generation uses API key hashing for privacy
+- Comprehensive console logging with `[ChatHistory]` prefix
+
 ## [1.6.0] - 2025-01-22
 
 ### 🎉 Major Release: Production-Ready MCP Implementation

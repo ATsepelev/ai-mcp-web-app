@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, useMemo, useEffect } from 'react';
 import openaiLocales from './locales/openai';
+import { generateStorageKey, loadMessages, saveMessages, clearHistory } from './chatHistoryStorage';
 
 // Generate unique IDs for tool calls
 const generateToolCallId = () => `toolcall_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -488,7 +489,7 @@ function parseAssistantResponse(assistantMsg, availableTools = new Set()) {
   };
 }
 
-export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000, maxToolLoops = 5, systemPromptAddition = null, temperature = 0.5, mcpResources = [], readResourceFn = null) => {
+export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000, maxToolLoops = 5, systemPromptAddition = null, temperature = 0.5, mcpResources = [], readResourceFn = null, persistChatHistory = true, historyDepthHours = 24) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -498,6 +499,8 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
   const [loadedStaticResources, setLoadedStaticResources] = useState('');
   const resourcesLoadedRef = useRef(false); // Flag to prevent multiple loads
   const readResourceFnRef = useRef(readResourceFn);
+  const historyLoadedRef = useRef(false); // Flag to prevent multiple history loads
+  const storageKeyRef = useRef(null); // Storage key for IndexedDB
   
   // Update ref when function changes
   useEffect(() => {
@@ -630,6 +633,62 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     }
   }, [staticResources.length]); // Only depend on count to avoid re-triggers
 
+  // Load chat history from IndexedDB on mount
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      // Skip if already loaded or persistence is disabled
+      if (historyLoadedRef.current || !persistChatHistory) {
+        return;
+      }
+
+      try {
+        // Generate storage key
+        storageKeyRef.current = generateStorageKey(modelName, baseUrl, apiKey);
+        
+        console.info('[ChatHistory] Loading chat history for key:', storageKeyRef.current);
+        
+        // Load messages from IndexedDB
+        const loadedMessages = await loadMessages(
+          storageKeyRef.current, 
+          historyDepthHours, 
+          maxContextSize
+        );
+
+        if (loadedMessages && loadedMessages.length > 0) {
+          // Filter messages by context size
+          const systemMessage = { role: 'system', content: systemPrompt };
+          const historyWithSystem = [systemMessage, ...loadedMessages];
+          const { filtered, allMessages } = filterMessagesByContext(historyWithSystem, maxContextSize);
+          
+          // Update conversation history with filtered messages
+          conversationHistoryRef.current = filtered;
+          
+          // Update UI messages (exclude system messages)
+          const uiMessages = allMessages.filter(msg => msg.role !== 'system');
+          setMessages(uiMessages);
+          
+          console.info(`[ChatHistory] Loaded ${loadedMessages.length} messages from history`);
+        } else {
+          // No history found - initialize with system message
+          conversationHistoryRef.current = [{ role: 'system', content: systemPrompt }];
+          console.info('[ChatHistory] No history found, starting fresh');
+        }
+        
+        historyLoadedRef.current = true;
+      } catch (error) {
+        console.error('[ChatHistory] Error loading chat history:', error);
+        // On error, initialize with system message
+        conversationHistoryRef.current = [{ role: 'system', content: systemPrompt }];
+        historyLoadedRef.current = true;
+      }
+    };
+
+    // Load history after system prompt is ready
+    if (systemPrompt && !historyLoadedRef.current) {
+      loadChatHistory();
+    }
+  }, [systemPrompt, persistChatHistory, historyDepthHours, maxContextSize, modelName, baseUrl, apiKey]);
+
   // System prompt with localization (recomputed when tools or locale/mode change)
   // toolsMode: 'api' = tools passed via API parameter only (standard)
   // toolsMode: 'prompt' = tools passed via API parameter AND described in system prompt (legacy)
@@ -717,13 +776,23 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
   // Use provided tools + resource tool
   const availableTools = new Set(extendedToolsSchema.map(t => t.function.name));
 
-  const clearChat = useCallback(() => {
+  const clearChat = useCallback(async () => {
     setMessages([]);
     conversationHistoryRef.current = [{ role: "system", content: systemPrompt }];
     setError(null);
     setIsStreaming(false);
     setStreamingMessage(null);
-  }, [systemPrompt]);
+    
+    // Clear history from IndexedDB
+    if (persistChatHistory && storageKeyRef.current) {
+      try {
+        await clearHistory(storageKeyRef.current);
+        console.info('[ChatHistory] Cleared history from IndexedDB');
+      } catch (error) {
+        console.error('[ChatHistory] Error clearing history:', error);
+      }
+    }
+  }, [systemPrompt, persistChatHistory]);
 
   const handleToolCalls = useCallback(async (toolCallsArray) => {
     setIsExecutingTools(true);
@@ -1268,6 +1337,15 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       // Filter out all system messages from UI (they should not be displayed to user)
       uiMessages = allMessages.filter(msg => msg.role !== 'system');
       setMessages(uiMessages);
+      
+      // Save messages to IndexedDB
+      if (persistChatHistory && storageKeyRef.current) {
+        try {
+          await saveMessages(storageKeyRef.current, conversationHistoryRef.current, maxContextSize);
+        } catch (error) {
+          console.error('[ChatHistory] Error saving messages:', error);
+        }
+      }
     } catch (err) {
       setError(err.message);
 
@@ -1287,7 +1365,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       setIsLoading(false);
       isProcessingRef.current = false;
     }
-  }, [isLoading, callOpenAI, handleToolCalls, actualToolsSchema, currentLocale, maxContextSize]);
+  }, [isLoading, callOpenAI, handleToolCalls, actualToolsSchema, currentLocale, maxContextSize, persistChatHistory]);
 
   // Streaming version of sendMessage
   const sendMessageStream = useCallback(async (userMessage) => {
@@ -1515,6 +1593,15 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       // Filter out all system messages from UI (they should not be displayed to user)
       uiMessages = allMessages.filter(msg => msg.role !== 'system');
       setMessages(uiMessages);
+      
+      // Save messages to IndexedDB
+      if (persistChatHistory && storageKeyRef.current) {
+        try {
+          await saveMessages(storageKeyRef.current, conversationHistoryRef.current, maxContextSize);
+        } catch (error) {
+          console.error('[ChatHistory] Error saving messages:', error);
+        }
+      }
 
     } catch (err) {
       setError(err.message);
@@ -1537,7 +1624,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       setStreamingMessage(null);
       isProcessingRef.current = false;
     }
-  }, [isLoading, callOpenAIStream, handleToolCalls, currentLocale, locale, validateAssistantContent, maxContextSize]);
+  }, [isLoading, callOpenAIStream, handleToolCalls, currentLocale, locale, validateAssistantContent, maxContextSize, persistChatHistory]);
 
   return {
     messages,

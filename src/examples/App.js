@@ -42,6 +42,9 @@ function App() {
         // allowedTools={["files.readFile", "api.getData"]}
         apiKey={""}
         locale="en"
+        // Chat history persistence (enabled by default)
+        // persistChatHistory={true}  // Set to false to disable history
+        // historyDepthHours={24}     // Keep messages from last 24 hours
         // Example theme customization
         // theme={{
         //   // Collapsed state colors

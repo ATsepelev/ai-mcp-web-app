@@ -570,7 +570,10 @@ const ChatWidget = ({
                   // System prompt customization
                   systemPromptAddition = null,
                   // LLM temperature control (0.0-2.0, recommended 0.4-0.6 for chat)
-                  temperature = 0.5
+                  temperature = 0.5,
+                  // Chat history persistence
+                  persistChatHistory = true,
+                  historyDepthHours = 24
                     }) => {
   const [inputValue, setInputValue] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -669,7 +672,9 @@ const ChatWidget = ({
     systemPromptAddition,
     temperature,
     resources,
-    readResource
+    readResource,
+    persistChatHistory,
+    historyDepthHours
   );
 
 
@@ -1054,7 +1059,9 @@ const ChatWidget = ({
       expandedHeight,
       theme: mergedTheme,
       systemPromptAddition,
-      temperature
+      temperature,
+      persistChatHistory,
+      historyDepthHours
     };
 
     return React.cloneElement(customComponent, customProps);
