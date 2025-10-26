@@ -179,6 +179,12 @@ export const useMCPClient = (options = {}) => {
         // Initialize routed client immediately with internal tools
         const routedClient = {
           callTool: async (name, args) => {
+            // Check if internal client is initialized
+            if (!internalClient || !internalClient.initialized) {
+              console.error('[useMCPClient] Internal client not initialized');
+              throw new Error('MCP client not initialized. Please wait and try again.');
+            }
+            
             if (typeof name === 'string' && name.includes('_')) {
               const [sid, ...rest] = name.split('_');
               const tool = rest.join('_');
@@ -186,9 +192,11 @@ export const useMCPClient = (options = {}) => {
               if (!ext) throw new Error(`Unknown external server '${sid}'`);
               return ext.callTool(tool, args);
             }
+            
             const internalHas = internalTools.some(t => t.name === name);
             const externalResults = Array.from(externalResultsMap.values());
             const externalMatches = externalResults.filter(r => r.client && r.tools.some(t => t.name === name));
+            
             if (internalHas && externalMatches.length === 0) {
               return internalClient.callTool(name, args);
             }
@@ -237,7 +245,7 @@ export const useMCPClient = (options = {}) => {
 
         // Set client immediately with internal tools
         setClient(routedClient);
-        
+
         // If no external servers, set connected status immediately
         if (serverArray.length === 0) {
           updateMergedState();

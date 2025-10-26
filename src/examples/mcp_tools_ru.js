@@ -91,7 +91,13 @@ export const fillReviewForm = async (params) => {
       console.log(`[MCP Tool] Форма отзыва заполнена: имя='${name}', рейтинг=${stars}, отзыв='${review || ''}'`);
       return {
         success: true,
-        message: `Форма отзыва заполнена: имя='${name}', рейтинг=${stars} звезд${review ? `, отзыв='${review}'` : ''}`
+        message: `Форма отзыва успешно заполнена`,
+        data: {
+          name: name.trim(),
+          rating: stars,
+          review: review || null,
+          fieldsSet: ['name', 'rating', review ? 'review' : null].filter(Boolean)
+        }
       };
     } catch (error) {
       console.error('[MCP Tool] Ошибка при заполнении формы:', error);
@@ -106,6 +112,7 @@ export const clickSubmitReview = async () => {
       if (reviewForm) {
         // Сначала проверяем, есть ли явная кнопка submit
         const submitButtons = reviewForm.querySelectorAll('button[type="submit"], button.submit-button');
+        let submitMethod;
         if (submitButtons.length > 0) {
           // Имитируем полную последовательность клика
           const button = submitButtons[0];
@@ -116,16 +123,24 @@ export const clickSubmitReview = async () => {
           button.dispatchEvent(mouseDownEvent);
           button.dispatchEvent(mouseUpEvent);
           button.dispatchEvent(clickEvent);
+          submitMethod = 'button_click';
 
           console.log(`[MCP Tool] Нажата кнопка отправки формы отзыва`);
-          return {success: true, message: "Форма отзыва отправлена."};
         } else {
           // Если нет явной кнопки submit, вызываем submit формы
           const event = new Event('submit', {bubbles: true, cancelable: true});
           reviewForm.dispatchEvent(event);
+          submitMethod = 'form_submit';
           console.log(`[MCP Tool] Форма отзыва отправлена через submit`);
-          return {success: true, message: "Форма отзыва отправлена."};
         }
+        return {
+          success: true, 
+          message: `Форма отзыва успешно отправлена через ${submitMethod}`,
+          data: {
+            submitMethod,
+            formFound: true
+          }
+        };
       } else {
         throw new Error("Форма отзыва не найдена.");
       }
@@ -137,10 +152,13 @@ export const clickSubmitReview = async () => {
 
 export const clearReviewForm = async () => {
       try {
+      const clearedFields = [];
+      
       // Очищаем поле имени
       const nameInput = document.querySelector('#name');
       if (nameInput) {
         setReactInputValue(nameInput, '');
+        clearedFields.push('name');
         console.log(`[MCP Tool] Поле имени очищено`);
       }
 
@@ -167,7 +185,8 @@ export const clearReviewForm = async () => {
         if (ratingContainer) {
           ratingContainer.click();
         }
-
+        
+        clearedFields.push('rating');
         console.log(`[MCP Tool] Рейтинг сброшен`);
       }
 
@@ -175,6 +194,7 @@ export const clearReviewForm = async () => {
       const reviewTextarea = document.querySelector('#review');
       if (reviewTextarea) {
         setReactInputValue(reviewTextarea, '');
+        clearedFields.push('review');
         console.log(`[MCP Tool] Поле отзыва очищено`);
       }
 
@@ -188,7 +208,11 @@ export const clearReviewForm = async () => {
       console.log(`[MCP Tool] Форма отзыва очищена`);
       return {
         success: true,
-        message: "Форма отзыва очищена."
+        message: "Форма отзыва успешно очищена",
+        data: {
+          fieldsCleared: clearedFields,
+          formState: 'empty'
+        }
       };
     } catch (error) {
       console.error('[MCP Tool] Ошибка при очистке формы:', error);

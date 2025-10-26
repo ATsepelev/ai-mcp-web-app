@@ -91,7 +91,13 @@ export const fillReviewForm = async (params) => {
     console.log(`[MCP Tool] 评价表单已填写: 姓名='${name}', 评分=${stars}, 评价='${review || ''}'`);
     return {
       success: true,
-      message: `评价表单已填写: 姓名='${name}', 评分=${stars} 星${review ? `, 评价='${review}'` : ''}`
+      message: `评价表单填写成功`,
+      data: {
+        name: name.trim(),
+        rating: stars,
+        review: review || null,
+        fieldsSet: ['name', 'rating', review ? 'review' : null].filter(Boolean)
+      }
     };
   } catch (error) {
     console.error('[MCP Tool] 填写表单时出错:', error);
@@ -106,6 +112,7 @@ export const clickSubmitReview = async () => {
     if (reviewForm) {
       // 首先检查是否有明确的提交按钮
       const submitButtons = reviewForm.querySelectorAll('button[type="submit"], button.submit-button');
+      let submitMethod;
       if (submitButtons.length > 0) {
         // 模拟完整的点击序列
         const button = submitButtons[0];
@@ -116,16 +123,24 @@ export const clickSubmitReview = async () => {
         button.dispatchEvent(mouseDownEvent);
         button.dispatchEvent(mouseUpEvent);
         button.dispatchEvent(clickEvent);
+        submitMethod = 'button_click';
 
         console.log(`[MCP Tool] 点击了评价表单提交按钮`);
-        return {success: true, message: "评价表单已提交。"};
       } else {
         // 如果没有明确的提交按钮，调用表单提交
         const event = new Event('submit', {bubbles: true, cancelable: true});
         reviewForm.dispatchEvent(event);
+        submitMethod = 'form_submit';
         console.log(`[MCP Tool] 通过submit提交了评价表单`);
-        return {success: true, message: "评价表单已提交。"};
       }
+      return {
+        success: true, 
+        message: `评价表单通过 ${submitMethod} 成功提交`,
+        data: {
+          submitMethod,
+          formFound: true
+        }
+      };
     } else {
       throw new Error("未找到评价表单。");
     }
@@ -137,10 +152,13 @@ export const clickSubmitReview = async () => {
 
 export const clearReviewForm = async () => {
   try {
+    const clearedFields = [];
+    
     // 清除姓名字段
     const nameInput = document.querySelector('#name');
     if (nameInput) {
       setReactInputValue(nameInput, '');
+      clearedFields.push('name');
       console.log(`[MCP Tool] 姓名字段已清除`);
     }
 
@@ -167,7 +185,8 @@ export const clearReviewForm = async () => {
       if (ratingContainer) {
         ratingContainer.click();
       }
-
+      
+      clearedFields.push('rating');
       console.log(`[MCP Tool] 评分已重置`);
     }
 
@@ -175,6 +194,7 @@ export const clearReviewForm = async () => {
     const reviewTextarea = document.querySelector('#review');
     if (reviewTextarea) {
       setReactInputValue(reviewTextarea, '');
+      clearedFields.push('review');
       console.log(`[MCP Tool] 评价字段已清除`);
     }
 
@@ -188,7 +208,11 @@ export const clearReviewForm = async () => {
     console.log(`[MCP Tool] 评价表单已清除`);
     return {
       success: true,
-      message: "评价表单已清除。"
+      message: "评价表单清除成功",
+      data: {
+        fieldsCleared: clearedFields,
+        formState: 'empty'
+      }
     };
   } catch (error) {
     console.error('[MCP Tool] 清除表单时出错:', error);

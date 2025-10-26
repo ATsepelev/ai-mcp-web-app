@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2025-01-26
+
+### Fixed
+- **Critical: Internal MCP Tool Call Recognition**: Fixed issue where internal MCP server tools were not being invoked
+  - Root cause: `parseAssistantResponse` was incorrectly removing opening `{` and closing `}` from JSON tool calls
+  - Added check to skip aggressive brace cleanup if content looks like JSON (starts with `{` and ends with `}`)
+  - LLM tool call responses now correctly recognized and parsed
+  - Tools execute properly on first attempt without fallback/retry logic
+  - Significantly improved tool invocation reliability for models that return JSON in content field
+
+### Changed
+- **Production Optimization**: Removed all debug console.log statements from production code
+  - Cleaned up `useOpenAIChat.js`: removed initialization, streaming, and parsing debug logs
+  - Cleaned up `useMCPClient.js`: removed client initialization and tool routing debug logs
+  - Cleaned up `ChatWidget.js`: removed MCP client status debug logs
+  - Cleaner console output in production environments
+  - Slightly improved runtime performance
+
+### Technical
+- Modified `parseAssistantResponse()` to preserve JSON structure when detecting tool calls
+- Added `looksLikeJson` check before applying orphaned brace cleanup regex
+- Ensures tool call JSON is parsed correctly even when sent in `content` field instead of `tool_calls`
+- Removed 60+ debug log statements across core modules
+
+## [1.6.2] - 2025-01-26
+
+### Fixed
+- **Chat History Notification**: Fixed notification popup appearing on page reload when history is loaded from IndexedDB
+  - Added `isLoadingHistory` flag to distinguish between loading history and receiving new messages
+  - Notification popup now only appears for genuinely new assistant messages, not for loaded history
+  - Flag automatically resets after history is loaded (100ms delay)
+  - Exported `isLoadingHistory` from `useOpenAIChat` hook for custom component support
+
+### Technical
+- Added `isLoadingHistory` state to `useOpenAIChat` hook
+- Updated notification detection logic in `ChatWidget` to check `isLoadingHistory` flag
+- Added `isLoadingHistory` to custom component props for advanced users
+
 ## [1.6.1] - 2025-01-26
 
 ### Added

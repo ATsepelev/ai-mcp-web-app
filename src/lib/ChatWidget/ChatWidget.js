@@ -594,6 +594,7 @@ const ChatWidget = ({
   const lastMicActionAtRef = useRef(0);
   const wasAtBottomRef = useRef(true);
   const lastProcessedMessageIndexRef = useRef(-1);
+  const historyJustLoadedRef = useRef(false);
 
   // Merge theme with defaults
   const mergedTheme = useMemo(() => ({
@@ -657,7 +658,8 @@ const ChatWidget = ({
     isStreaming,
     streamingMessage,
     isExecutingTools,
-    clearChat
+    clearChat,
+    isLoadingHistory
   } = useOpenAIChat(
     client,
     modelName,
@@ -911,9 +913,34 @@ const ChatWidget = ({
     };
   }, []);
 
+  // Track when history loading completes and initialize message index
+  useEffect(() => {
+    // When loading starts, set the flag
+    if (isLoadingHistory) {
+      historyJustLoadedRef.current = true;
+    }
+    
+    // When loading completes, initialize the index
+    if (!isLoadingHistory && historyJustLoadedRef.current && messages && messages.length > 0) {
+      // Find last assistant message index and set it
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant' && messages[i].content) {
+          const cleaned = cleanAssistantContent(messages[i].content);
+          if (cleaned && !isDisplayContentEmpty(cleaned)) {
+            lastProcessedMessageIndexRef.current = i;
+            break;
+          }
+        }
+      }
+      // Reset the flag - history has been processed
+      historyJustLoadedRef.current = false;
+    }
+  }, [isLoadingHistory, messages]);
+
   // Detect new assistant messages and show notification when chat is collapsed
   useEffect(() => {
-    if (isExpanded || !messages || messages.length === 0) {
+    // Skip if chat is expanded, no messages, loading history, or history just loaded
+    if (isExpanded || !messages || messages.length === 0 || isLoadingHistory || historyJustLoadedRef.current) {
       return;
     }
 
@@ -936,7 +963,7 @@ const ChatWidget = ({
       const cleanedContent = cleanAssistantContent(message.content);
       showNotificationPopup(cleanedContent);
     }
-  }, [messages, isExpanded]);
+  }, [messages, isExpanded, isLoadingHistory]);
 
   // Clear notification when chat is expanded
   useEffect(() => {
@@ -1061,7 +1088,8 @@ const ChatWidget = ({
       systemPromptAddition,
       temperature,
       persistChatHistory,
-      historyDepthHours
+      historyDepthHours,
+      isLoadingHistory
     };
 
     return React.cloneElement(customComponent, customProps);

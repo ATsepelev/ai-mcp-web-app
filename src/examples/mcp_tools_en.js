@@ -91,7 +91,13 @@ export const fillReviewForm = async (params) => {
     console.log(`[MCP Tool] Review form filled: name='${name}', rating=${stars}, review='${review || ''}'`);
     return {
       success: true,
-      message: `Review form filled: name='${name}', rating=${stars} stars${review ? `, review='${review}'` : ''}`
+      message: `Review form filled successfully`,
+      data: {
+        name: name.trim(),
+        rating: stars,
+        review: review || null,
+        fieldsSet: ['name', 'rating', review ? 'review' : null].filter(Boolean)
+      }
     };
   } catch (error) {
     console.error('[MCP Tool] Error filling form:', error);
@@ -106,6 +112,7 @@ export const clickSubmitReview = async () => {
     if (reviewForm) {
       // First check if there's an explicit submit button
       const submitButtons = reviewForm.querySelectorAll('button[type="submit"], button.submit-button');
+      let submitMethod;
       if (submitButtons.length > 0) {
         // Simulate full click sequence
         const button = submitButtons[0];
@@ -116,16 +123,24 @@ export const clickSubmitReview = async () => {
         button.dispatchEvent(mouseDownEvent);
         button.dispatchEvent(mouseUpEvent);
         button.dispatchEvent(clickEvent);
+        submitMethod = 'button_click';
 
         console.log(`[MCP Tool] Review form submit button clicked`);
-        return {success: true, message: "Review form submitted."};
       } else {
         // If no explicit submit button, call form submit
         const event = new Event('submit', {bubbles: true, cancelable: true});
         reviewForm.dispatchEvent(event);
+        submitMethod = 'form_submit';
         console.log(`[MCP Tool] Review form submitted via submit`);
-        return {success: true, message: "Review form submitted."};
       }
+      return {
+        success: true, 
+        message: `Review form submitted successfully via ${submitMethod}`,
+        data: {
+          submitMethod,
+          formFound: true
+        }
+      };
     } else {
       throw new Error("Review form not found.");
     }
@@ -137,10 +152,13 @@ export const clickSubmitReview = async () => {
 
 export const clearReviewForm = async () => {
   try {
+    const clearedFields = [];
+    
     // Clear name field
     const nameInput = document.querySelector('#name');
     if (nameInput) {
       setReactInputValue(nameInput, '');
+      clearedFields.push('name');
       console.log(`[MCP Tool] Name field cleared`);
     }
 
@@ -167,7 +185,8 @@ export const clearReviewForm = async () => {
       if (ratingContainer) {
         ratingContainer.click();
       }
-
+      
+      clearedFields.push('rating');
       console.log(`[MCP Tool] Rating reset`);
     }
 
@@ -175,6 +194,7 @@ export const clearReviewForm = async () => {
     const reviewTextarea = document.querySelector('#review');
     if (reviewTextarea) {
       setReactInputValue(reviewTextarea, '');
+      clearedFields.push('review');
       console.log(`[MCP Tool] Review field cleared`);
     }
 
@@ -188,7 +208,11 @@ export const clearReviewForm = async () => {
     console.log(`[MCP Tool] Review form cleared`);
     return {
       success: true,
-      message: "Review form cleared."
+      message: "Review form cleared successfully",
+      data: {
+        fieldsCleared: clearedFields,
+        formState: 'empty'
+      }
     };
   } catch (error) {
     console.error('[MCP Tool] Error clearing form:', error);

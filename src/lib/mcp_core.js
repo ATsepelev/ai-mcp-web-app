@@ -188,9 +188,11 @@ class MCPServer extends MCPBase {
     // Tool execution
     this.onRequest('mcp.tools.call', async (params) => {
       const { name, arguments: args } = params;
+      console.log('[MCP Server] Received tool call request:', name, 'with args:', args);
       const tool = this.tools.find(t => t.name === name);
 
       if (!tool) {
+        console.error('[MCP Server] Tool not found:', name);
         throw {
           code: 4004,
           message: `Tool '${name}' not found`
@@ -198,9 +200,12 @@ class MCPServer extends MCPBase {
       }
 
       try {
+        console.log('[MCP Server] Executing tool handler for:', name);
         const result = await tool.handler(args);
+        console.log('[MCP Server] Tool execution successful:', name, result);
         return { success: true, result };
       } catch (error) {
+        console.error('[MCP Server] Tool execution failed:', name, error);
         throw {
           code: 5001,
           message: `Tool execution failed: ${error.message}`,
@@ -321,6 +326,8 @@ class MCPServer extends MCPBase {
       parameters: tool.parameters || {},
       handler: tool.handler
     });
+    
+    console.log('[MCP Server] Tool registered:', tool.name);
   }
 
   registerTools(tools) {
@@ -417,10 +424,13 @@ class MCPClient extends MCPBase {
       await this.initialize();
     }
 
-    return this.sendRequest('mcp.tools.call', {
+    console.log('[MCP Client] Calling tool:', name, 'with args:', args);
+    const result = await this.sendRequest('mcp.tools.call', {
       name: name,
       arguments: args
     });
+    console.log('[MCP Client] Tool call result:', result);
+    return result;
   }
 
   async loadResources() {

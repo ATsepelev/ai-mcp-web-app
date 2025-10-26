@@ -340,10 +340,18 @@ function parseAssistantResponse(assistantMsg, availableTools = new Set()) {
         return match;
       });
       
-      // Remove orphaned closing braces that may remain after tool call extraction
-      displayContent = displayContent.replace(/^\s*[\{\}]\s*$/gm, '');
-      // Remove lines that contain only "json" keyword (artifacts from markdown blocks)
-      displayContent = displayContent.replace(/^\s*json\s*$/gm, '');
+      // Check if content looks like JSON before applying aggressive cleanups
+      const trimmedForCheck = displayContent.trim();
+      const looksLikeJson = (trimmedForCheck.startsWith('{') && trimmedForCheck.endsWith('}')) ||
+                            (trimmedForCheck.startsWith('[') && trimmedForCheck.endsWith(']'));
+      
+      // Only apply orphaned brace cleanup if content doesn't look like JSON
+      if (!looksLikeJson) {
+        // Remove orphaned closing braces that may remain after tool call extraction
+        displayContent = displayContent.replace(/^\s*[\{\}]\s*$/gm, '');
+        // Remove lines that contain only "json" keyword (artifacts from markdown blocks)
+        displayContent = displayContent.replace(/^\s*json\s*$/gm, '');
+      }
       
       // Clean up multiple consecutive newlines left after block removal (multiple passes)
       displayContent = displayContent.replace(/\n{3,}/g, '\n\n');
@@ -401,6 +409,7 @@ function parseAssistantResponse(assistantMsg, availableTools = new Set()) {
       if (!toolCallsJson) {
         try {
           const trimmedContent = displayContent.trim();
+          
           if (trimmedContent.startsWith('[') && trimmedContent.endsWith(']')) {
             const parsedJson = JSON.parse(trimmedContent);
             
@@ -497,6 +506,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
   const [streamingMessage, setStreamingMessage] = useState(null);
   const [isExecutingTools, setIsExecutingTools] = useState(false);
   const [loadedStaticResources, setLoadedStaticResources] = useState('');
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false); // Flag to indicate history is being loaded
   const resourcesLoadedRef = useRef(false); // Flag to prevent multiple loads
   const readResourceFnRef = useRef(readResourceFn);
   const historyLoadedRef = useRef(false); // Flag to prevent multiple history loads
@@ -642,6 +652,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       }
 
       try {
+        // Set loading flag to prevent notification popup for loaded messages
+        setIsLoadingHistory(true);
+        
         // Generate storage key
         storageKeyRef.current = generateStorageKey(modelName, baseUrl, apiKey);
         
@@ -675,11 +688,17 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         }
         
         historyLoadedRef.current = true;
+        
+        // Reset loading flag after a small delay to ensure UI has updated
+        setTimeout(() => {
+          setIsLoadingHistory(false);
+        }, 100);
       } catch (error) {
         console.error('[ChatHistory] Error loading chat history:', error);
         // On error, initialize with system message
         conversationHistoryRef.current = [{ role: 'system', content: systemPrompt }];
         historyLoadedRef.current = true;
+        setIsLoadingHistory(false);
       }
     };
 
@@ -772,7 +791,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     }
     return tools;
   }, [actualToolsSchema, dynamicResourceTool]);
-
+  
   // Use provided tools + resource tool
   const availableTools = new Set(extendedToolsSchema.map(t => t.function.name));
 
@@ -869,6 +888,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
           content: JSON.stringify(result)
         };
       } catch (error) {
+        console.error('[useOpenAIChat] Tool execution error:', error);
         return {
           role: "tool",
           tool_call_id: toolCallId,
@@ -1116,15 +1136,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
   }, [validationOptions, locale, callOpenAI]);
 
   const sendMessage = useCallback(async (userMessage) => {
-    // Check if tools are loaded
-    /*if (!toolsSchema || toolsSchema.length === 0) {
-      setError("Tools not loaded. Please try again later.");
-      setIsLoading(false);
-      isProcessingRef.current = false;
+    if (!userMessage.trim() || isLoading || isProcessingRef.current) {
       return;
-    }*/
-
-    if (!userMessage.trim() || isLoading || isProcessingRef.current) return;
+    }
 
     isProcessingRef.current = true;
     setIsLoading(true);
@@ -1369,7 +1383,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
 
   // Streaming version of sendMessage
   const sendMessageStream = useCallback(async (userMessage) => {
-    if (!userMessage.trim() || isLoading || isProcessingRef.current) return;
+    if (!userMessage.trim() || isLoading || isProcessingRef.current) {
+      return;
+    }
 
     isProcessingRef.current = true;
     setIsLoading(true);
@@ -1421,6 +1437,11 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
               ...prev,
               content: accumulatedContent
             }));
+          }
+          
+          // Handle reasoning_content (thinking) - don't display
+          if (delta.reasoning_content) {
+            // Silently ignore reasoning content
           }
           
           if (delta.tool_calls) {
@@ -1635,6 +1656,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     isStreaming,
     streamingMessage,
     isExecutingTools,
-    clearChat
+    clearChat,
+    isLoadingHistory
   };
 };
