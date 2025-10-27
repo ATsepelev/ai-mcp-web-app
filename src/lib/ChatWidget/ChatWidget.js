@@ -866,12 +866,13 @@ const ChatWidget = ({
       scrollToBottom();
     }
 
-    if (isExpanded && !isLoading && inputRef.current) {
+    // Auto-focus input when assistant is done and ready for user input
+    if (isExpanded && !isLoading && !isStreaming && !isExecutingTools && inputRef.current) {
       setTimeout(() => {
         inputRef.current?.focus();
       }, 100);
     }
-  }, [messages, isExpanded]);
+  }, [messages, isExpanded, isLoading, isStreaming, isExecutingTools]);
 
   // Auto-scroll during streaming messages if user was at bottom
   useEffect(() => {
