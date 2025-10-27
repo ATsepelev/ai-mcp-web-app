@@ -1,5 +1,5 @@
 import React from 'react';
-import {ChatWidget, useMCPServer} from "ai-mcp-web-app";
+import {ChatWidget, useMCPServer} from "@chatrium/widget";
 import './App.css';
 import TestArea from "./TestArea/TestArea_en";
 import { REVIEW_TOOLS} from "./mcp_tools_en";

@@ -5,6 +5,135 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2025-10-27
+
+### 🎉 Major Release: Rebranding to Chatrium
+
+This release represents a complete rebranding of the project from "ai-mcp-web-app" to "Chatrium Widget" - a name that better reflects the essence of the project as a space for AI conversations.
+
+**Chatrium** is now a family of AI conversation tools, and this package is the first: `@chatrium/widget`.
+
+### 🚨 Breaking Changes
+
+**Package Name Change:**
+- Old package name: `ai-mcp-web-app`
+- New package name: `@chatrium/widget`
+- Repository moved: `ATsepelev/ai-mcp-web-app` → `chatrium/widget`
+- GitHub organization created for Chatrium ecosystem
+
+**Migration Required:**
+
+```bash
+# Uninstall old package
+npm uninstall ai-mcp-web-app
+
+# Install new package
+npm install @chatrium/widget
+```
+
+Update all imports in your code:
+
+```javascript
+// Before
+import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+
+// After
+import { ChatWidget, useMCPServer } from "@chatrium/widget";
+```
+
+### Added
+
+- **New Brand Identity**: 
+  - Brand name: "Chatrium" (pronunciation: CHAT-ree-um)
+  - Tagline: "Your space for AI conversations"
+  - New logo with hexagonal design representing a "space" for conversations
+  - Complete brand guidelines document (BRAND_GUIDELINES.md)
+  - Chatrium ecosystem created for future AI conversation tools
+
+- **Visual Assets**:
+  - New logo in SVG format with gradient design (blue to purple)
+  - Hexagonal icon symbolizing conversation space
+  - Modern color palette: Deep Blue (#2563EB) to Purple (#7C3AED)
+
+- **Brand Guidelines**: Comprehensive documentation including:
+  - Logo usage rules and variations
+  - Color palette (primary, functional, neutral)
+  - Typography guidelines (Inter, Space Grotesk, JetBrains Mono)
+  - Voice and tone guidelines
+  - UI design system
+
+### Changed
+
+- **Package Metadata**:
+  - Version bumped to 3.0.0
+  - Package name: `@chatrium/widget` (scoped package)
+  - Description updated to "Chatrium Widget"
+  - Keywords updated with "chatrium", "chat-widget", "conversational-ai"
+  - Repository moved to GitHub organization: `chatrium/widget`
+
+- **Documentation**:
+  - README.md updated with Chatrium branding
+  - All references to "ai-mcp-web-app" replaced with "Chatrium"
+  - New brand guidelines section added
+  - Updated examples with new import statements
+
+### Technical
+
+- All core functionality remains unchanged
+- No API changes - fully compatible with v2.0.0 code (except package name)
+- Build configuration unchanged
+- All features from v2.0.0 preserved
+
+### Migration from v2.0.0
+
+**Step 1: Update package.json**
+```json
+{
+  "dependencies": {
+    "@chatrium/widget": "^3.0.0"
+  }
+}
+```
+
+**Step 2: Update imports throughout your codebase**
+```bash
+# Find and replace in all files
+ai-mcp-web-app → @chatrium/widget
+```
+
+**Step 3: Install and test**
+```bash
+npm install
+npm start
+```
+
+### Why Chatrium?
+
+The name "Chatrium" combines "Chat" with the suffix "-rium" (as in auditorium, aquarium), creating an association with a **space** or **room** for conversations. It's:
+- Modern and memorable
+- Easy to pronounce in multiple languages
+- Unique and brandable
+- Reflects the core purpose: a space for AI conversations
+- Scalable as an ecosystem of AI conversation tools
+
+### Chatrium Ecosystem
+
+**@chatrium/widget** is the first package in the Chatrium family. Future packages will include:
+- `@chatrium/server` - Backend MCP server implementation
+- `@chatrium/cli` - Development and deployment tools
+- `@chatrium/tools` - Reusable MCP tool library
+- And more...
+
+### Links
+
+- **NPM Package**: https://www.npmjs.com/package/@chatrium/widget
+- **GitHub Organization**: https://github.com/chatrium
+- **Widget Repository**: https://github.com/chatrium/widget
+- **Documentation**: https://github.com/chatrium/widget#readme
+- **Brand Guidelines**: [BRAND_GUIDELINES.md](./BRAND_GUIDELINES.md)
+
+---
+
 ## [2.0.0] - 2025-01-27
 
 ### 🎉 Breaking Changes: LLM Configuration Refactor

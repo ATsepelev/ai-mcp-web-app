@@ -1,6 +1,12 @@
-# AI Chat Widget with MCP Tools
+# Chatrium Widget
+
+![Chatrium Logo](./logo.svg)
+
+**Your space for AI conversations**
 
 A modern, customizable chat widget with voice input support and MCP (Model Communication Protocol) tool integration for interacting with AI assistants.
+
+> **Chatrium** is a family of AI conversation tools. This package (`@chatrium/widget`) provides the core React chat widget component.
 
 ## Features
 
@@ -16,7 +22,7 @@ A modern, customizable chat widget with voice input support and MCP (Model Commu
 ## Installation
 
 ```bash
-npm install ai-mcp-web-app
+npm install @chatrium/widget
 ```
 
 ## Building from Source
@@ -24,8 +30,8 @@ npm install ai-mcp-web-app
 To build the widget from source for customization or contribution:
 
 ```bash
-git clone https://github.com/ATsepelev/ai-mcp-web-app.git
-cd ai-mcp-web-app
+git clone https://github.com/chatrium/widget.git
+cd widget
 npm install
 npm run build
 ```
@@ -54,12 +60,12 @@ This makes it an exceptionally powerful yet straightforward solution for automat
 #### JavaScript (Create React App)
 
 ```bash
-npm install ai-mcp-web-app
+npm install @chatrium/widget
 ```
 
 ```javascript
 // src/App.js
-import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { ChatWidget, useMCPServer } from "@chatrium/widget";
 import { TOOLS } from "./mcp_tools";
 
 function App() {
@@ -89,13 +95,13 @@ export default App;
 #### TypeScript (Create React App)
 
 ```bash
-npm install ai-mcp-web-app
+npm install @chatrium/widget
 ```
 
 ```typescript
 // src/App.tsx
 import React from 'react';
-import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { ChatWidget, useMCPServer } from "@chatrium/widget";
 import { TOOLS } from "./mcp_tools";
 
 function App(): JSX.Element {
@@ -166,12 +172,12 @@ export const TOOLS: Tool[] = [
 #### Vite (JavaScript + JSX)
 
 ```bash
-npm install ai-mcp-web-app
+npm install @chatrium/widget
 ```
 
 ```javascript
 // src/App.jsx
-import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { ChatWidget, useMCPServer } from "@chatrium/widget";
 import { TOOLS } from "./mcp_tools";
 
 function App() {
@@ -205,12 +211,12 @@ VITE_OPENAI_BASE_URL=http://127.0.0.1:1234/v1
 #### Vite (TypeScript + TSX)
 
 ```bash
-npm install ai-mcp-web-app
+npm install @chatrium/widget
 ```
 
 ```typescript
 // src/App.tsx
-import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { ChatWidget, useMCPServer } from "@chatrium/widget";
 import { TOOLS } from "./mcp_tools";
 
 function App(): JSX.Element {
@@ -241,14 +247,14 @@ The widget works out of the box with Vite. No additional configuration is needed
 #### Next.js (App Router - TypeScript)
 
 ```bash
-npm install ai-mcp-web-app
+npm install @chatrium/widget
 ```
 
 ```typescript
 // app/components/ChatWidgetWrapper.tsx
 'use client';
 
-import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { ChatWidget, useMCPServer } from "@chatrium/widget";
 import { TOOLS } from "./mcp_tools";
 
 export default function ChatWidgetWrapper() {
@@ -329,7 +335,7 @@ export default function Home() {
 ### Basic Implementation
 
 ```javascript
-import {ChatWidget, useMCPServer} from "ai-mcp-web-app";
+import {ChatWidget, useMCPServer} from "@chatrium/widget";
 import {TOOLS} from "./mcp_tools";
 
 function App() {
@@ -721,7 +727,7 @@ export const RESOURCES = [
 ### Using Resources
 
 ```javascript
-import { ChatWidget, useMCPServer } from "ai-mcp-web-app";
+import { ChatWidget, useMCPServer } from "@chatrium/widget";
 import { TOOLS } from "./mcp_tools";
 import { RESOURCES } from "./mcp_resources";
 
@@ -1186,6 +1192,27 @@ replace({
 
 MIT License - see LICENSE file for details.
 
+## Brand Guidelines
+
+For information about using the Chatrium brand, logo, and visual identity, please see our [Brand Guidelines](./BRAND_GUIDELINES.md).
+
+## Chatrium Ecosystem
+
+**Chatrium** is a family of tools for building AI-powered conversational interfaces:
+
+- **@chatrium/widget** (this package) - React chat widget with voice input and MCP integration
+- **@chatrium/server** _(coming soon)_ - Backend MCP server implementation
+- **@chatrium/cli** _(coming soon)_ - Command-line tools for Chatrium development
+- **@chatrium/tools** _(coming soon)_ - Reusable MCP tool collection
+
 ## Support
 
-For issues and feature requests, please use the GitHub issue tracker.
+For issues and feature requests, please use the [GitHub issue tracker](https://github.com/chatrium/widget/issues).
+
+## Links
+
+- **NPM Package**: https://www.npmjs.com/package/@chatrium/widget
+- **GitHub Organization**: https://github.com/chatrium
+- **Widget Repository**: https://github.com/chatrium/widget
+- **Documentation**: https://github.com/chatrium/widget#readme
+- **Brand Guidelines**: [BRAND_GUIDELINES.md](./BRAND_GUIDELINES.md)

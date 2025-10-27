@@ -1,0 +1,77 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="iconGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2563EB;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    </linearGradient>
+    
+    <filter id="iconShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dx="0" dy="2" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.2"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Hexagon Icon -->
+  <g transform="translate(8, 8)" filter="url(#iconShadow)">
+    <!-- Main hexagon -->
+    <path d="M 24 4 L 40 14 L 40 34 L 24 44 L 8 34 L 8 14 Z" 
+          fill="url(#iconGradient)" 
+          stroke="none"/>
+    
+    <!-- Inner glow -->
+    <path d="M 24 4 L 40 14 L 40 34 L 24 44 L 8 34 L 8 14 Z" 
+          fill="none"
+          stroke="rgba(255, 255, 255, 0.3)" 
+          stroke-width="1.5"/>
+    
+    <!-- Chat waves - left side -->
+    <g opacity="0.95">
+      <path d="M 14 18 Q 17 16 20 18" 
+            stroke="white" 
+            stroke-width="3" 
+            stroke-linecap="round"
+            fill="none"/>
+      <path d="M 14 24 Q 17 22 20 24" 
+            stroke="white" 
+            stroke-width="3" 
+            stroke-linecap="round"
+            fill="none"
+            opacity="0.8"/>
+      <path d="M 14 30 Q 17 28 20 30" 
+            stroke="white" 
+            stroke-width="3" 
+            stroke-linecap="round"
+            fill="none"
+            opacity="0.6"/>
+    </g>
+    
+    <!-- Chat waves - right side -->
+    <g opacity="0.95">
+      <path d="M 28 18 Q 31 16 34 18" 
+            stroke="white" 
+            stroke-width="3" 
+            stroke-linecap="round"
+            fill="none"/>
+      <path d="M 28 24 Q 31 22 34 24" 
+            stroke="white" 
+            stroke-width="3" 
+            stroke-linecap="round"
+            fill="none"
+            opacity="0.8"/>
+      <path d="M 28 30 Q 31 28 34 30" 
+            stroke="white" 
+            stroke-width="3" 
+            stroke-linecap="round"
+            fill="none"
+            opacity="0.6"/>
+    </g>
+  </g>
+</svg>
+

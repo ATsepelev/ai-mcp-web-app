@@ -1,21 +1,25 @@
 {
-  "name": "ai-mcp-web-app",
-  "version": "2.0.0",
+  "name": "@chatrium/widget",
+  "version": "3.0.0",
   "type": "module",
-  "description": "A modern chat widget with voice input and in-browser MCP tool integration for AI assistants",
+  "description": "Chatrium Widget - A modern chat widget with voice input and MCP integration for AI assistants",
   "keywords": [
+    "chatrium",
     "chat",
     "widget",
     "ai",
+    "chat-widget",
+    "voice-input",
+    "speech-to-text",
     "mcp",
     "model-communication-protocol",
     "mcp-resources",
     "mcp-tools",
-    "voice-input",
-    "speech-to-text",
     "openai",
     "react",
     "chatbot",
+    "ai-chat",
+    "conversational-ai",
     "assistant",
     "automation",
     "tools",
@@ -85,10 +89,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/ATsepelev/ai-mcp-web-app.git"
+    "url": "https://github.com/chatrium/widget.git"
   },
   "bugs": {
-    "url": "https://github.com/ATsepelev/ai-mcp-web-app/issues"
+    "url": "https://github.com/chatrium/widget/issues"
   },
-  "homepage": "https://github.com/ATsepelev/ai-mcp-web-app#readme"
+  "homepage": "https://github.com/chatrium/widget#readme"
 }
