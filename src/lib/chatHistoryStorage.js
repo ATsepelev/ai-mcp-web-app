@@ -15,12 +15,28 @@ let dbInitPromise = null;
 /**
  * Generate a unique storage key based on configuration
  * This ensures different configurations store their history separately
+ * Accepts either llmConfigs array (new format) or individual params (for backwards compatibility)
  */
-export const generateStorageKey = (modelName, baseUrl, apiKey) => {
+export const generateStorageKey = (llmConfigsOrModelName, baseUrl, apiKey) => {
+  let modelName, url, key;
+  
+  // Check if first parameter is an array (new llmConfigs format)
+  if (Array.isArray(llmConfigsOrModelName) && llmConfigsOrModelName.length > 0) {
+    const firstConfig = llmConfigsOrModelName[0];
+    modelName = firstConfig.modelName;
+    url = firstConfig.baseUrl;
+    key = firstConfig.apiKey;
+  } else {
+    // Old format: individual parameters
+    modelName = llmConfigsOrModelName;
+    url = baseUrl;
+    key = apiKey;
+  }
+  
   // Create a unique key from configuration
   // Use a hash of apiKey if present (for privacy) or just use the config
-  const apiKeyHash = apiKey ? hashString(apiKey) : 'no-key';
-  const sanitizedUrl = (baseUrl || 'default').replace(/[^a-zA-Z0-9]/g, '_');
+  const apiKeyHash = key ? hashString(key) : 'no-key';
+  const sanitizedUrl = (url || 'default').replace(/[^a-zA-Z0-9]/g, '_');
   const sanitizedModel = (modelName || 'default').replace(/[^a-zA-Z0-9]/g, '_');
   
   return `${sanitizedModel}_${sanitizedUrl}_${apiKeyHash}`;
@@ -56,7 +72,6 @@ export const initDB = () => {
 
   // Check if IndexedDB is available
   if (typeof window === 'undefined' || !window.indexedDB) {
-    console.warn('[ChatHistory] IndexedDB not available');
     return Promise.reject(new Error('IndexedDB not available'));
   }
 
@@ -65,7 +80,6 @@ export const initDB = () => {
       const request = window.indexedDB.open(DB_NAME, DB_VERSION);
 
       request.onerror = () => {
-        console.error('[ChatHistory] Failed to open database:', request.error);
         dbInitPromise = null;
         reject(request.error);
       };
@@ -73,7 +87,6 @@ export const initDB = () => {
       request.onsuccess = () => {
         dbInstance = request.result;
         dbInitPromise = null;
-        console.info('[ChatHistory] Database initialized successfully');
         resolve(dbInstance);
       };
 
@@ -83,11 +96,9 @@ export const initDB = () => {
         // Create object store if it doesn't exist
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: 'storageKey' });
-          console.info('[ChatHistory] Object store created');
         }
       };
     } catch (error) {
-      console.error('[ChatHistory] Error initializing database:', error);
       dbInitPromise = null;
       reject(error);
     }
@@ -113,7 +124,6 @@ export const saveMessages = async (storageKey, messages, maxContextSize) => {
       }));
 
     if (messagesToSave.length === 0) {
-      console.info('[ChatHistory] No messages to save');
       return;
     }
 
@@ -130,17 +140,14 @@ export const saveMessages = async (storageKey, messages, maxContextSize) => {
 
     return new Promise((resolve, reject) => {
       request.onsuccess = () => {
-        console.info(`[ChatHistory] Saved ${messagesToSave.length} messages for key: ${storageKey}`);
         resolve();
       };
 
       request.onerror = () => {
-        console.error('[ChatHistory] Failed to save messages:', request.error);
         reject(request.error);
       };
     });
   } catch (error) {
-    console.error('[ChatHistory] Error saving messages:', error);
     // Don't throw - fail gracefully
   }
 };
@@ -162,7 +169,6 @@ export const loadMessages = async (storageKey, historyDepthHours, maxContextSize
         const data = request.result;
         
         if (!data || !data.messages || data.messages.length === 0) {
-          console.info('[ChatHistory] No stored messages found');
           resolve([]);
           return;
         }
@@ -177,20 +183,16 @@ export const loadMessages = async (storageKey, historyDepthHours, maxContextSize
             return age <= maxAge;
           })
           .map(item => item.message);
-
-        console.info(`[ChatHistory] Loaded ${validMessages.length} messages (filtered by age: ${historyDepthHours}h)`);
         
         // Note: Context size filtering will be applied by the caller using filterMessagesByContext
         resolve(validMessages);
       };
 
       request.onerror = () => {
-        console.error('[ChatHistory] Failed to load messages:', request.error);
         reject(request.error);
       };
     });
   } catch (error) {
-    console.error('[ChatHistory] Error loading messages:', error);
     return []; // Return empty array on error
   }
 };
@@ -229,7 +231,6 @@ export const deleteOldMessages = async (storageKey, historyDepthHours) => {
           // Delete the entire record if no messages remain
           const deleteRequest = store.delete(storageKey);
           deleteRequest.onsuccess = () => {
-            console.info('[ChatHistory] Deleted all old messages');
             resolve();
           };
           deleteRequest.onerror = () => reject(deleteRequest.error);
@@ -242,7 +243,6 @@ export const deleteOldMessages = async (storageKey, historyDepthHours) => {
           });
           
           updateRequest.onsuccess = () => {
-            console.info(`[ChatHistory] Removed ${data.messages.length - validMessages.length} old messages`);
             resolve();
           };
           updateRequest.onerror = () => reject(updateRequest.error);
@@ -254,7 +254,7 @@ export const deleteOldMessages = async (storageKey, historyDepthHours) => {
       getRequest.onerror = () => reject(getRequest.error);
     });
   } catch (error) {
-    console.error('[ChatHistory] Error deleting old messages:', error);
+    // Fail gracefully
   }
 };
 
@@ -272,17 +272,14 @@ export const clearHistory = async (storageKey) => {
 
     return new Promise((resolve, reject) => {
       request.onsuccess = () => {
-        console.info(`[ChatHistory] Cleared history for key: ${storageKey}`);
         resolve();
       };
 
       request.onerror = () => {
-        console.error('[ChatHistory] Failed to clear history:', request.error);
         reject(request.error);
       };
     });
   } catch (error) {
-    console.error('[ChatHistory] Error clearing history:', error);
     // Don't throw - fail gracefully
   }
 };
@@ -300,17 +297,15 @@ export const clearAllHistory = async () => {
 
     return new Promise((resolve, reject) => {
       request.onsuccess = () => {
-        console.info('[ChatHistory] Cleared all history');
         resolve();
       };
 
       request.onerror = () => {
-        console.error('[ChatHistory] Failed to clear all history:', request.error);
         reject(request.error);
       };
     });
   } catch (error) {
-    console.error('[ChatHistory] Error clearing all history:', error);
+    // Fail gracefully
   }
 };
 

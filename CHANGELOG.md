@@ -5,6 +5,104 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-01-27
+
+### 🎉 Breaking Changes: LLM Configuration Refactor
+
+This major release consolidates LLM configuration into an OpenAI-style array format and adds automatic fallback support.
+
+### Added
+- **Debug Mode**: New `debug` prop for detailed console logging (default: false)
+  - MCP protocol initialization and server connections
+  - LLM API requests and responses
+  - Tool execution with arguments and results
+  - Fallback events and config switching
+  - Formatted output with `[Debug]` prefix for easy filtering
+  - Development-only feature, should be disabled in production
+
+### Changed
+- **LLM Configuration Structure** (BREAKING): Individual LLM props replaced with `llmConfigs` array
+  - Old props removed: `modelName`, `baseUrl`, `apiKey`, `temperature`, `maxContextSize`, `maxToolLoops`, `systemPromptAddition`, `validationOptions`, `toolsMode`
+  - New prop: `llmConfigs` - array of configuration objects
+  - Each config object contains all LLM-related settings
+  - OpenAI-style configuration format for familiarity
+  - See migration guide in README for conversion instructions
+
+### Added
+- **Automatic Fallback Support**: Multiple LLM configurations with automatic failover
+  - Supports multiple API endpoints in priority order
+  - Automatically tries next config when current one fails
+  - Resets to primary config on successful request
+  - Fallback progression logged to console for debugging
+  - Enables high-availability deployments with backup LLMs
+  
+- **Per-Config Settings**: Each LLM configuration can have different:
+  - Model name and API endpoint
+  - Temperature and context size
+  - Tool execution limits
+  - System prompt additions
+  - Validation options
+  - Tools mode (api/prompt)
+
+### Technical
+- Updated `ChatWidget.js` to accept `llmConfigs` prop
+- Refactored `useOpenAIChat.js` hook:
+  - New function signature with `llmConfigs` parameter
+  - State management for current config index
+  - Fallback logic in error handlers
+  - Config normalization with defaults
+  - Success reset to primary config
+- Updated `chatHistoryStorage.js`:
+  - `generateStorageKey()` accepts llmConfigs array
+  - Backwards compatible with old format
+  - Uses first config for key generation
+- Updated example applications to use new format
+- Comprehensive README documentation with migration guide
+
+### Migration from v1.x
+
+**Before (v1.x):**
+```javascript
+<ChatWidget 
+  modelName="gpt-4o-mini"
+  baseUrl="http://127.0.0.1:1234/v1"
+  apiKey="your-api-key"
+  temperature={0.5}
+  maxContextSize={32000}
+/>
+```
+
+**After (v2.0):**
+```javascript
+<ChatWidget 
+  llmConfigs={[{
+    modelName: "gpt-4o-mini",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    apiKey: "your-api-key",
+    temperature: 0.5,
+    maxContextSize: 32000
+  }]}
+/>
+```
+
+**With Fallback (v2.0):**
+```javascript
+<ChatWidget 
+  llmConfigs={[
+    {
+      modelName: "gpt-4o",
+      baseUrl: "https://primary-api.com/v1",
+      apiKey: "primary-key"
+    },
+    {
+      modelName: "gpt-3.5-turbo",
+      baseUrl: "https://backup-api.com/v1",
+      apiKey: "backup-key"
+    }
+  ]}
+/>
+```
+
 ## [1.6.3] - 2025-01-26
 
 ### Fixed

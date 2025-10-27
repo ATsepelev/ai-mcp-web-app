@@ -11,10 +11,8 @@ let encodingForModel = null;
   try {
     const tiktoken = await import('js-tiktoken');
     encodingForModel = tiktoken.encodingForModel;
-    console.info('✅ js-tiktoken loaded successfully. Using accurate token counting.');
   } catch (e) {
     // js-tiktoken not installed - will use approximate counting
-    console.info('⚠️ js-tiktoken not installed. Using approximate token counting (4 chars ≈ 1 token). Install js-tiktoken for accurate counting.');
   }
 })();
 
@@ -28,7 +26,6 @@ const getTokenizer = () => {
       // Try to get encoding for gpt-4 (cl100k_base)
       tokenizer = encodingForModel('gpt-4');
     } catch (e) {
-      console.warn('Failed to initialize tokenizer for gpt-4:', e);
       // Tokenizer initialization failed - return null
       // Will fall back to approximate counting
     }
@@ -498,7 +495,7 @@ function parseAssistantResponse(assistantMsg, availableTools = new Set()) {
   };
 }
 
-export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualToolsSchema, locale = 'en', validationOptions = null, toolsMode = 'api', maxContextSize = 32000, maxToolLoops = 5, systemPromptAddition = null, temperature = 0.5, mcpResources = [], readResourceFn = null, persistChatHistory = true, historyDepthHours = 24) => {
+export const useOpenAIChat = (mcpClient, llmConfigs, actualToolsSchema, locale = 'en', mcpResources = [], readResourceFn = null, persistChatHistory = true, historyDepthHours = 24, debug = false) => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -507,15 +504,82 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
   const [isExecutingTools, setIsExecutingTools] = useState(false);
   const [loadedStaticResources, setLoadedStaticResources] = useState('');
   const [isLoadingHistory, setIsLoadingHistory] = useState(false); // Flag to indicate history is being loaded
+  const [currentConfigIndex, setCurrentConfigIndex] = useState(0); // Track current LLM config for fallback
   const resourcesLoadedRef = useRef(false); // Flag to prevent multiple loads
   const readResourceFnRef = useRef(readResourceFn);
   const historyLoadedRef = useRef(false); // Flag to prevent multiple history loads
   const storageKeyRef = useRef(null); // Storage key for IndexedDB
+  const retryMessageRef = useRef(null); // Store message for retry on config change
+  const isRetryingRef = useRef(false); // Flag to indicate we're in retry mode
+  const sendMessageStreamRef = useRef(null); // Ref to current sendMessageStream function
+  
+  // Ensure llmConfigs is an array with at least one config
+  const normalizedConfigs = useMemo(() => {
+    if (!llmConfigs || !Array.isArray(llmConfigs) || llmConfigs.length === 0) {
+      return [{
+        modelName: 'gpt-4o-mini',
+        baseUrl: 'http://127.0.0.1:1234/v1',
+        apiKey: null,
+        temperature: 0.5,
+        maxContextSize: 32000,
+        maxToolLoops: 5,
+        systemPromptAddition: null,
+        validationOptions: null,
+        toolsMode: 'api'
+      }];
+    }
+    // Apply defaults to each config
+    return llmConfigs.map(config => ({
+      modelName: config.modelName || 'gpt-4o-mini',
+      baseUrl: config.baseUrl || 'http://127.0.0.1:1234/v1',
+      apiKey: config.apiKey || null,
+      temperature: config.temperature !== undefined ? config.temperature : 0.5,
+      maxContextSize: config.maxContextSize || 32000,
+      maxToolLoops: config.maxToolLoops || 5,
+      systemPromptAddition: config.systemPromptAddition || null,
+      validationOptions: config.validationOptions || null,
+      toolsMode: config.toolsMode || 'api'
+    }));
+  }, [llmConfigs]);
+  
+  // Extract current config
+  const currentConfig = normalizedConfigs[currentConfigIndex] || normalizedConfigs[0];
+  const {
+    modelName,
+    baseUrl,
+    apiKey,
+    temperature,
+    maxContextSize,
+    maxToolLoops,
+    systemPromptAddition,
+    validationOptions,
+    toolsMode
+  } = currentConfig;
   
   // Update ref when function changes
   useEffect(() => {
     readResourceFnRef.current = readResourceFn;
   }, [readResourceFn]);
+  
+  // Handle automatic retry when config changes
+  useEffect(() => {
+    if (isRetryingRef.current && retryMessageRef.current && !isLoading && sendMessageStreamRef.current) {
+      const messageToRetry = retryMessageRef.current;
+      retryMessageRef.current = null;
+      isRetryingRef.current = false;
+      
+      if (debug) {
+        console.info(`[LLM Fallback] Retrying with config ${currentConfigIndex} (${normalizedConfigs[currentConfigIndex].modelName})`);
+      }
+      
+      // Use setTimeout to avoid state updates during render
+      setTimeout(() => {
+        if (sendMessageStreamRef.current) {
+          sendMessageStreamRef.current(messageToRetry);
+        }
+      }, 50);
+    }
+  }, [currentConfigIndex, isLoading, normalizedConfigs]);
 
   // Get current localization
   const currentLocale = openaiLocales[locale] || openaiLocales.ru;
@@ -567,7 +631,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       }
 
       try {
-        console.log('[Resources] Loading static resources...', staticResources.length);
+        if (debug) {
+          console.log('[Debug] Resources: Loading static resources...', staticResources.length);
+        }
         
         const resourceDataPromises = staticResources.map(async (resource) => {
           try {
@@ -591,7 +657,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
             const MAX_RESOURCE_SIZE = 5000; // 5KB limit per resource
             if (dataStr.length > MAX_RESOURCE_SIZE) {
               dataStr = dataStr.substring(0, MAX_RESOURCE_SIZE) + '\n... (truncated)';
-              console.warn(`[Resources] Resource ${resource.uri} truncated (${dataStr.length} chars)`);
+              if (debug) {
+                console.warn(`[Debug] Resources: Resource ${resource.uri} truncated (${dataStr.length} chars)`);
+              }
             }
 
             return {
@@ -600,7 +668,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
               data: dataStr
             };
           } catch (err) {
-            console.warn(`[Resources] Failed to load resource ${resource.uri}:`, err);
+            if (debug) {
+              console.warn(`[Debug] Resources: Failed to load resource ${resource.uri}:`, err);
+            }
             return null;
           }
         });
@@ -618,20 +688,26 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
           const MAX_TOTAL_SIZE = 20000; // 20KB total limit
           
           if (totalSize > MAX_TOTAL_SIZE) {
-            console.warn(`[Resources] Total context too large (${totalSize} chars), limiting...`);
+            if (debug) {
+              console.warn(`[Debug] Resources: Total context too large (${totalSize} chars), limiting...`);
+            }
             setLoadedStaticResources(`\n\n## Available Context Data\n\n${resourceContext.substring(0, MAX_TOTAL_SIZE)}\n... (truncated)`);
           } else {
             setLoadedStaticResources(`\n\n## Available Context Data\n\n${resourceContext}`);
           }
           
-          console.log(`[Resources] Loaded ${validData.length} static resources (${totalSize} chars)`);
+          if (debug) {
+            console.log(`[Debug] Resources: Loaded ${validData.length} static resources (${totalSize} chars)`);
+          }
         } else {
           setLoadedStaticResources('');
         }
         
         resourcesLoadedRef.current = true;
       } catch (error) {
-        console.error('[Resources] Error loading static resources:', error);
+        if (debug) {
+          console.error('[Debug] Resources: Error loading static resources:', error);
+        }
         setLoadedStaticResources('');
         resourcesLoadedRef.current = true;
       }
@@ -655,10 +731,12 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         // Set loading flag to prevent notification popup for loaded messages
         setIsLoadingHistory(true);
         
-        // Generate storage key
-        storageKeyRef.current = generateStorageKey(modelName, baseUrl, apiKey);
+        // Generate storage key using normalizedConfigs
+        storageKeyRef.current = generateStorageKey(normalizedConfigs);
         
-        console.info('[ChatHistory] Loading chat history for key:', storageKeyRef.current);
+        if (debug) {
+          console.info('[Debug] ChatHistory: Loading chat history for key:', storageKeyRef.current);
+        }
         
         // Load messages from IndexedDB
         const loadedMessages = await loadMessages(
@@ -680,11 +758,15 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
           const uiMessages = allMessages.filter(msg => msg.role !== 'system');
           setMessages(uiMessages);
           
-          console.info(`[ChatHistory] Loaded ${loadedMessages.length} messages from history`);
+          if (debug) {
+            console.info(`[Debug] ChatHistory: Loaded ${loadedMessages.length} messages from history`);
+          }
         } else {
           // No history found - initialize with system message
           conversationHistoryRef.current = [{ role: 'system', content: systemPrompt }];
-          console.info('[ChatHistory] No history found, starting fresh');
+          if (debug) {
+            console.info('[Debug] ChatHistory: No history found, starting fresh');
+          }
         }
         
         historyLoadedRef.current = true;
@@ -694,7 +776,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
           setIsLoadingHistory(false);
         }, 100);
       } catch (error) {
-        console.error('[ChatHistory] Error loading chat history:', error);
+        if (debug) {
+          console.error('[Debug] ChatHistory: Error loading chat history:', error);
+        }
         // On error, initialize with system message
         conversationHistoryRef.current = [{ role: 'system', content: systemPrompt }];
         historyLoadedRef.current = true;
@@ -806,9 +890,13 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     if (persistChatHistory && storageKeyRef.current) {
       try {
         await clearHistory(storageKeyRef.current);
-        console.info('[ChatHistory] Cleared history from IndexedDB');
+        if (debug) {
+          console.info('[Debug] ChatHistory: Cleared history from IndexedDB');
+        }
       } catch (error) {
-        console.error('[ChatHistory] Error clearing history:', error);
+        if (debug) {
+          console.error('[Debug] ChatHistory: Error clearing history:', error);
+        }
       }
     }
   }, [systemPrompt, persistChatHistory]);
@@ -817,12 +905,26 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     setIsExecutingTools(true);
     const toolResponses = [];
 
+    if (debug) {
+      console.log('[Debug] Executing Tool Calls:', {
+        count: toolCallsArray.length,
+        tools: toolCallsArray.map(tc => tc.name)
+      });
+    }
+
     try {
     // Create array of promises for parallel tool execution
     const toolPromises = toolCallsArray.map(async (toolCall) => {
       const funcName = toolCall.name;
       const toolCallId = toolCall.id;
       let funcArgs = toolCall.arguments;
+      
+      if (debug) {
+        console.log(`[Debug] Tool Call: ${funcName}`, {
+          id: toolCallId,
+          args: funcArgs
+        });
+      }
 
       // Parse arguments from string to object
       if (typeof funcArgs === 'string') {
@@ -882,13 +984,28 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         // Regular tool execution
         const result = await mcpClient.callTool(funcName, funcArgs);
 
+        if (debug) {
+          console.log(`[Debug] Tool Result: ${funcName}`, {
+            id: toolCallId,
+            success: !result.error,
+            resultKeys: Object.keys(result)
+          });
+        }
+
         return {
           role: "tool",
           tool_call_id: toolCallId,
           content: JSON.stringify(result)
         };
       } catch (error) {
-        console.error('[useOpenAIChat] Tool execution error:', error);
+        if (debug) {
+          console.error('[Debug] Tool execution error:', error);
+          console.log(`[Debug] Tool Error: ${funcName}`, {
+            id: toolCallId,
+            error: error.message
+          });
+        }
+        
         return {
           role: "tool",
           tool_call_id: toolCallId,
@@ -913,11 +1030,19 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       }
     }
 
+    if (debug) {
+      console.log('[Debug] Tool Calls Completed:', {
+        totalCalls: toolCallsArray.length,
+        successfulResponses: toolResponses.filter(r => !JSON.parse(r.content).error).length,
+        failedResponses: toolResponses.filter(r => JSON.parse(r.content).error).length
+      });
+    }
+
     return toolResponses;
     } finally {
       setIsExecutingTools(false);
     }
-  }, [mcpClient, actualToolsSchema, currentLocale, availableTools]);
+  }, [mcpClient, actualToolsSchema, currentLocale, availableTools, debug]);
 
   const callOpenAI = useCallback(async (history, options = {}) => {
     // Use provided parameters or defaults
@@ -937,6 +1062,16 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     if (toolsSchema.length > 0) {
       requestBody.tools = toolsSchema;
       requestBody.tool_choice = actualToolChoice;
+    }
+
+    if (debug) {
+      console.log('[Debug] OpenAI API Request:', {
+        model: actualModelName,
+        baseUrl: actualBaseUrl,
+        messageCount: history.length,
+        toolsCount: toolsSchema.length,
+        temperature
+      });
     }
 
     const headers = {
@@ -981,8 +1116,20 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       throw new Error(`${errorMsg}`);
     }
 
-    return await response.json();
-  }, [modelName, baseUrl, apiKey, extendedToolsSchema, currentLocale, toolsMode]);
+    const result = await response.json();
+    
+    if (debug) {
+      console.log('[Debug] OpenAI API Response:', {
+        model: result.model,
+        finishReason: result.choices?.[0]?.finish_reason,
+        hasToolCalls: !!result.choices?.[0]?.message?.tool_calls,
+        toolCallsCount: result.choices?.[0]?.message?.tool_calls?.length || 0,
+        contentLength: result.choices?.[0]?.message?.content?.length || 0
+      });
+    }
+    
+    return result;
+  }, [modelName, baseUrl, apiKey, extendedToolsSchema, currentLocale, toolsMode, debug]);
 
   // Streaming version of OpenAI API call
   const callOpenAIStream = useCallback(async (history, options = {}, onChunk) => {
@@ -1004,6 +1151,17 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     if (toolsSchema.length > 0) {
       requestBody.tools = toolsSchema;
       requestBody.tool_choice = actualToolChoice;
+    }
+
+    if (debug) {
+      console.log('[Debug] OpenAI Stream API Request:', {
+        model: actualModelName,
+        baseUrl: actualBaseUrl,
+        messageCount: history.length,
+        toolsCount: toolsSchema.length,
+        temperature,
+        streaming: true
+      });
     }
 
     const headers = {
@@ -1082,7 +1240,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
     } finally {
       reader.releaseLock();
     }
-  }, [modelName, baseUrl, apiKey, extendedToolsSchema, currentLocale, toolsMode]);
+  }, [modelName, baseUrl, apiKey, extendedToolsSchema, currentLocale, toolsMode, debug]);
 
   // Optional validator: checks assistant display content and can warn or request a revision
   const validateAssistantContent = useCallback(async (assistantText) => {
@@ -1140,6 +1298,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       return;
     }
 
+    // Store original message for potential retry with fallback
+    const originalUserMessage = userMessage;
+    
     isProcessingRef.current = true;
     setIsLoading(true);
     setError(null);
@@ -1148,7 +1309,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
 
     try {
       // Add user message
-      const userMsgObj = { role: "user", content: userMessage };
+      const userMsgObj = { role: "user", content: originalUserMessage };
       conversationHistoryRef.current.push(userMsgObj);
       
       // Update UI messages with exclusion flags
@@ -1357,10 +1518,50 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         try {
           await saveMessages(storageKeyRef.current, conversationHistoryRef.current, maxContextSize);
         } catch (error) {
-          console.error('[ChatHistory] Error saving messages:', error);
+          if (debug) {
+            console.error('[Debug] ChatHistory: Error saving messages:', error);
+          }
         }
       }
+      
+      // Reset to first config on success
+      if (currentConfigIndex !== 0) {
+        if (debug) {
+          console.info('[Debug] LLM Fallback: Request successful. Resetting to primary config.');
+        }
+        setCurrentConfigIndex(0);
+      }
     } catch (err) {
+      // Try fallback to next config if available
+      if (currentConfigIndex < normalizedConfigs.length - 1) {
+        if (debug) {
+          console.warn(`[Debug] LLM Fallback: Config ${currentConfigIndex} (${normalizedConfigs[currentConfigIndex].modelName}) failed: ${err.message}. Trying next config...`);
+        }
+        
+        // Remove the user message from history since we'll retry
+        if (conversationHistoryRef.current.length > 0 && 
+            conversationHistoryRef.current[conversationHistoryRef.current.length - 1].role === 'user') {
+          conversationHistoryRef.current.pop();
+        }
+        
+        // Store message for retry
+        retryMessageRef.current = originalUserMessage;
+        isRetryingRef.current = true;
+        
+        // Reset state
+        setError(null);
+        isProcessingRef.current = false;
+        setIsLoading(false);
+        
+        // Switch to next config (this will trigger useEffect to retry)
+        setCurrentConfigIndex(prev => prev + 1);
+        return;
+      }
+      
+      // All configs failed - show error
+      if (debug) {
+        console.error(`[Debug] LLM Fallback: All configs failed. Last error: ${err.message}`);
+      }
       setError(err.message);
 
       const errorMsg = {
@@ -1376,10 +1577,13 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       uiMessages = allMessages.filter(msg => msg.role !== 'system');
       setMessages(uiMessages);
     } finally {
-      setIsLoading(false);
-      isProcessingRef.current = false;
+      // Only clean up if not retrying with fallback
+      if (!(currentConfigIndex < normalizedConfigs.length - 1 && error)) {
+        setIsLoading(false);
+        isProcessingRef.current = false;
+      }
     }
-  }, [isLoading, callOpenAI, handleToolCalls, actualToolsSchema, currentLocale, maxContextSize, persistChatHistory]);
+  }, [isLoading, callOpenAI, handleToolCalls, actualToolsSchema, currentLocale, maxContextSize, persistChatHistory, currentConfigIndex, normalizedConfigs, error]);
 
   // Streaming version of sendMessage
   const sendMessageStream = useCallback(async (userMessage) => {
@@ -1387,6 +1591,9 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       return;
     }
 
+    // Store original message for potential retry with fallback
+    const originalUserMessage = userMessage;
+    
     isProcessingRef.current = true;
     setIsLoading(true);
     setIsStreaming(true);
@@ -1397,7 +1604,7 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
 
     try {
       // Add user message
-      const userMsgObj = { role: "user", content: userMessage };
+      const userMsgObj = { role: "user", content: originalUserMessage };
       conversationHistoryRef.current.push(userMsgObj);
       
       // Update UI messages with exclusion flags
@@ -1620,11 +1827,53 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
         try {
           await saveMessages(storageKeyRef.current, conversationHistoryRef.current, maxContextSize);
         } catch (error) {
-          console.error('[ChatHistory] Error saving messages:', error);
+          if (debug) {
+            console.error('[Debug] ChatHistory: Error saving messages:', error);
+          }
         }
+      }
+      
+      // Reset to first config on success
+      if (currentConfigIndex !== 0) {
+        if (debug) {
+          console.info('[Debug] LLM Fallback: Request successful. Resetting to primary config.');
+        }
+        setCurrentConfigIndex(0);
       }
 
     } catch (err) {
+      // Try fallback to next config if available
+      if (currentConfigIndex < normalizedConfigs.length - 1) {
+        if (debug) {
+          console.warn(`[Debug] LLM Fallback: Config ${currentConfigIndex} (${normalizedConfigs[currentConfigIndex].modelName}) failed: ${err.message}. Trying next config...`);
+        }
+        
+        // Remove the user message from history since we'll retry
+        if (conversationHistoryRef.current.length > 0 && 
+            conversationHistoryRef.current[conversationHistoryRef.current.length - 1].role === 'user') {
+          conversationHistoryRef.current.pop();
+        }
+        
+        // Store message for retry
+        retryMessageRef.current = originalUserMessage;
+        isRetryingRef.current = true;
+        
+        // Reset state
+        setError(null);
+        isProcessingRef.current = false;
+        setIsLoading(false);
+        setIsStreaming(false);
+        setStreamingMessage(null);
+        
+        // Switch to next config (this will trigger useEffect to retry)
+        setCurrentConfigIndex(prev => prev + 1);
+        return;
+      }
+      
+      // All configs failed - show error
+      if (debug) {
+        console.error(`[Debug] LLM Fallback: All configs failed. Last error: ${err.message}`);
+      }
       setError(err.message);
 
       const errorMsg = {
@@ -1640,12 +1889,20 @@ export const useOpenAIChat = (mcpClient, modelName, baseUrl, apiKey, actualTools
       uiMessages = allMessages.filter(msg => msg.role !== 'system');
       setMessages(uiMessages);
     } finally {
-      setIsLoading(false);
-      setIsStreaming(false);
-      setStreamingMessage(null);
-      isProcessingRef.current = false;
+      // Only clean up if not retrying with fallback
+      if (!(currentConfigIndex < normalizedConfigs.length - 1 && error)) {
+        setIsLoading(false);
+        setIsStreaming(false);
+        setStreamingMessage(null);
+        isProcessingRef.current = false;
+      }
     }
-  }, [isLoading, callOpenAIStream, handleToolCalls, currentLocale, locale, validateAssistantContent, maxContextSize, persistChatHistory]);
+  }, [isLoading, callOpenAIStream, handleToolCalls, currentLocale, locale, validateAssistantContent, maxContextSize, persistChatHistory, currentConfigIndex, normalizedConfigs, error]);
+
+  // Store sendMessageStream reference for retry logic
+  useEffect(() => {
+    sendMessageStreamRef.current = sendMessageStream;
+  }, [sendMessageStream]);
 
   return {
     messages,

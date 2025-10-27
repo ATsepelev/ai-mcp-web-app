@@ -68,9 +68,15 @@ function App() {
   return (
     <div className="App">
       <ChatWidget 
-        modelName="gpt-4o-mini"
-        baseUrl="http://127.0.0.1:1234/v1"
-        apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+        llmConfigs={[{
+          modelName: "gpt-4o-mini",
+          baseUrl: "http://127.0.0.1:1234/v1",
+          apiKey: process.env.REACT_APP_OPENAI_API_KEY,
+          temperature: 0.5,
+          maxContextSize: 32000,
+          maxToolLoops: 5,
+          toolsMode: "api"
+        }]}
         locale="en"
       />
     </div>
@@ -98,9 +104,15 @@ function App(): JSX.Element {
   return (
     <div className="App">
       <ChatWidget 
-        modelName="gpt-4o-mini"
-        baseUrl="http://127.0.0.1:1234/v1"
-        apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+        llmConfigs={[{
+          modelName: "gpt-4o-mini",
+          baseUrl: "http://127.0.0.1:1234/v1",
+          apiKey: process.env.REACT_APP_OPENAI_API_KEY,
+          temperature: 0.5,
+          maxContextSize: 32000,
+          maxToolLoops: 5,
+          toolsMode: "api"
+        }]}
         locale="en"
       />
     </div>
@@ -167,9 +179,15 @@ function App() {
   
   return (
     <ChatWidget 
-      modelName="gpt-4o-mini"
-      baseUrl={import.meta.env.VITE_OPENAI_BASE_URL || "http://127.0.0.1:1234/v1"}
-      apiKey={import.meta.env.VITE_OPENAI_API_KEY}
+      llmConfigs={[{
+        modelName: "gpt-4o-mini",
+        baseUrl: import.meta.env.VITE_OPENAI_BASE_URL || "http://127.0.0.1:1234/v1",
+        apiKey: import.meta.env.VITE_OPENAI_API_KEY,
+        temperature: 0.5,
+        maxContextSize: 32000,
+        maxToolLoops: 5,
+        toolsMode: "api"
+      }]}
       locale="en"
     />
   );
@@ -200,9 +218,15 @@ function App(): JSX.Element {
   
   return (
     <ChatWidget 
-      modelName="gpt-4o-mini"
-      baseUrl={import.meta.env.VITE_OPENAI_BASE_URL || "http://127.0.0.1:1234/v1"}
-      apiKey={import.meta.env.VITE_OPENAI_API_KEY}
+      llmConfigs={[{
+        modelName: "gpt-4o-mini",
+        baseUrl: import.meta.env.VITE_OPENAI_BASE_URL || "http://127.0.0.1:1234/v1",
+        apiKey: import.meta.env.VITE_OPENAI_API_KEY,
+        temperature: 0.5,
+        maxContextSize: 32000,
+        maxToolLoops: 5,
+        toolsMode: "api"
+      }]}
       locale="en"
     />
   );
@@ -232,9 +256,15 @@ export default function ChatWidgetWrapper() {
   
   return (
     <ChatWidget 
-      modelName="gpt-4o-mini"
-      baseUrl={process.env.NEXT_PUBLIC_OPENAI_BASE_URL || "http://127.0.0.1:1234/v1"}
-      apiKey={process.env.NEXT_PUBLIC_OPENAI_API_KEY}
+      llmConfigs={[{
+        modelName: "gpt-4o-mini",
+        baseUrl: process.env.NEXT_PUBLIC_OPENAI_BASE_URL || "http://127.0.0.1:1234/v1",
+        apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+        temperature: 0.5,
+        maxContextSize: 32000,
+        maxToolLoops: 5,
+        toolsMode: "api"
+      }]}
       locale="en"
     />
   );
@@ -308,9 +338,15 @@ function App() {
   return (
     <div className="App">
       <ChatWidget 
-        modelName="gpt-4o-mini"
-        baseUrl="http://127.0.0.1:1234/v1"
-        apiKey="your-api-key"
+        llmConfigs={[{
+          modelName: "gpt-4o-mini",
+          baseUrl: "http://127.0.0.1:1234/v1",
+          apiKey: "your-api-key",
+          temperature: 0.5,
+          maxContextSize: 32000,
+          maxToolLoops: 5,
+          toolsMode: "api"
+        }]}
         locale="en"
       />
     </div>
@@ -326,17 +362,32 @@ function App() {
   chatTitle="My AI Assistant"
   assistantName="Assistant" // Name displayed for AI messages
   greeting="Welcome! How can I help you today?"
-  modelName="gpt-4o-mini"
-  baseUrl="http://127.0.0.1:1234/v1"
-  apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+  debug={false} // Enable debug logging (default: false)
+  llmConfigs={[
+    {
+      // Primary LLM configuration
+      modelName: "gpt-4o-mini",
+      baseUrl: "https://api.openai.com/v1",
+      apiKey: process.env.REACT_APP_OPENAI_API_KEY,
+      temperature: 0.5, // 0.0-2.0 (default: 0.5)
+      maxContextSize: 32000, // Maximum tokens (default: 32000)
+      maxToolLoops: 5, // Max tool execution cycles (default: 5)
+      systemPromptAddition: "Additional instructions...", // Optional
+      validationOptions: null, // Response validation
+      toolsMode: "api" // 'api' (standard) or 'prompt' (legacy)
+    },
+    {
+      // Fallback LLM configuration (optional)
+      modelName: "gpt-3.5-turbo",
+      baseUrl: "https://backup-api.com/v1",
+      apiKey: process.env.REACT_APP_BACKUP_API_KEY,
+      temperature: 0.5
+    }
+  ]}
   toolsSchema={[]} // Custom tools schema (overrides MCP tools)
-  toolsMode="api" // 'api' (standard) or 'prompt' (legacy)
   locale="en"
   expandedWidth={350} // Widget width when expanded (number in pixels, "350px", or "50%" converted to 50vw)
   expandedHeight={400} // Widget height when expanded (number in pixels, "400px", or "80%" converted to 80vh)
-  maxContextSize={32000} // Maximum context size in tokens (default: 32000)
-  maxToolLoops={5} // Maximum number of tool execution cycles (default: 5)
-  validationOptions={null} // Assistant response validation options
   customLocales={{
     en: {
       openChat: "Open chat",
@@ -680,9 +731,15 @@ function App() {
   
   return (
     <ChatWidget 
-      modelName="gpt-4o-mini"
-      baseUrl="http://127.0.0.1:1234/v1"
-      apiKey={process.env.REACT_APP_OPENAI_API_KEY}
+      llmConfigs={[{
+        modelName: "gpt-4o-mini",
+        baseUrl: "http://127.0.0.1:1234/v1",
+        apiKey: process.env.REACT_APP_OPENAI_API_KEY,
+        temperature: 0.5,
+        maxContextSize: 32000,
+        maxToolLoops: 5,
+        toolsMode: "api"
+      }]}
       locale="en"
     />
   );
@@ -714,13 +771,104 @@ useMCPServer([], RESOURCES);
 
 ## API Configuration
 
-### OpenAI Compatible Endpoints
-- **modelName**: AI model name (default: 'gpt-4o-mini')
-- **baseUrl**: API endpoint URL (default: 'http://127.0.0.1:1234/v1')
-- **apiKey**: Authentication key for API access
-- **toolsMode**: Tools integration mode (default: 'api')
+### LLM Configuration (Breaking Change in v2.0)
+
+**New Format (v2.0+):** The widget now uses an `llmConfigs` array for LLM configuration, replacing individual props. This enables multiple LLM configurations with automatic fallback.
+
+```javascript
+llmConfigs={[
+  {
+    modelName: "gpt-4o-mini",        // AI model name
+    baseUrl: "https://api.openai.com/v1", // API endpoint URL
+    apiKey: "your-api-key",          // Authentication key
+    temperature: 0.5,                // Generation temperature (0.0-2.0)
+    maxContextSize: 32000,           // Maximum context tokens
+    maxToolLoops: 5,                 // Max tool execution cycles
+    systemPromptAddition: null,      // Optional system prompt addition
+    validationOptions: null,         // Response validation options
+    toolsMode: "api"                 // 'api' (standard) or 'prompt' (legacy)
+  }
+]}
+```
+
+### LLM Configuration Properties
+
+Each configuration object in the `llmConfigs` array supports:
+
+- **modelName** (string): AI model identifier (default: 'gpt-4o-mini')
+- **baseUrl** (string): API endpoint URL (default: 'http://127.0.0.1:1234/v1')
+- **apiKey** (string|null): Authentication key for API access
+- **temperature** (number): Generation temperature 0.0-2.0 (default: 0.5)
+- **maxContextSize** (number): Maximum context size in tokens (default: 32000)
+- **maxToolLoops** (number): Maximum tool execution cycles (default: 5)
+- **systemPromptAddition** (string|null): Additional system prompt text
+- **validationOptions** (object|null): Response validation configuration
+- **toolsMode** (string): Tools integration mode (default: 'api')
   - `'api'`: Standard mode - tools passed via OpenAI API `tools` parameter only (recommended for GPT-4, Claude, and other modern models)
   - `'prompt'`: Legacy mode - tools passed via API parameter AND listed in system prompt (for compatibility with older/custom models that need tools described in prompt)
+
+### Automatic Fallback
+
+When multiple configurations are provided, the widget automatically tries each one in order if an error occurs:
+
+```javascript
+llmConfigs={[
+  {
+    modelName: "gpt-4o",
+    baseUrl: "https://primary-api.com/v1",
+    apiKey: "primary-key"
+  },
+  {
+    modelName: "gpt-3.5-turbo",
+    baseUrl: "https://backup-api.com/v1",
+    apiKey: "backup-key"
+  }
+]}
+```
+
+- If the first config fails, automatically switches to the second
+- On successful request, resets back to the first (primary) config
+- Only shows error when all configs have failed
+- Fallback messages logged to console for debugging
+
+### Migration Guide (v1.x → v2.0)
+
+**Old Format (v1.x - DEPRECATED):**
+```javascript
+<ChatWidget 
+  modelName="gpt-4o-mini"
+  baseUrl="http://127.0.0.1:1234/v1"
+  apiKey="your-api-key"
+  temperature={0.5}
+  maxContextSize={32000}
+  maxToolLoops={5}
+  toolsMode="api"
+/>
+```
+
+**New Format (v2.0+):**
+```javascript
+<ChatWidget 
+  llmConfigs={[{
+    modelName: "gpt-4o-mini",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    apiKey: "your-api-key",
+    temperature: 0.5,
+    maxContextSize: 32000,
+    maxToolLoops: 5,
+    toolsMode: "api"
+  }]}
+/>
+```
+
+**Migration Steps:**
+1. Wrap all LLM-related props in an `llmConfigs` array
+2. Move the following props into the config object:
+   - `modelName`, `baseUrl`, `apiKey`
+   - `temperature`, `maxContextSize`, `maxToolLoops`
+   - `systemPromptAddition`, `validationOptions`, `toolsMode`
+3. Remove individual props from the widget level
+4. Optionally add fallback configurations to the array
 
 ### System Prompts
 
@@ -775,21 +923,23 @@ Available positions:
   - Accepts: number (pixels), "400px", "80%" (converted to 80vh viewport height), or "80vh"
 
 #### Context Management
-- `maxContextSize`: Maximum context size in tokens (default: 32000)
-  - When the conversation exceeds this limit, oldest messages are automatically excluded from being sent to the LLM
-  - System message (first message) is always preserved
-  - Excluded messages remain visible in the UI but are dimmed and marked with a warning icon
-  - Hovering over excluded messages shows a tooltip explaining they won't be sent to the AI assistant
-  - Token counting: Uses accurate tiktoken (cl100k_base) if installed, otherwise falls back to approximate counting (~3.5 chars per token)
-  - **Note**: For accurate token counting, install `js-tiktoken` as an optional dependency: `npm install js-tiktoken` (~21MB). Without it, the widget uses approximate counting and is ~20MB smaller.
+
+Context size is configured per LLM config in the `llmConfigs` array (see API Configuration section above):
+- When the conversation exceeds the `maxContextSize` limit, oldest messages are automatically excluded from being sent to the LLM
+- System message (first message) is always preserved
+- Excluded messages remain visible in the UI but are dimmed and marked with a warning icon
+- Hovering over excluded messages shows a tooltip explaining they won't be sent to the AI assistant
+- Token counting: Uses accurate tiktoken (cl100k_base) if installed, otherwise falls back to approximate counting (~3.5 chars per token)
+- **Note**: For accurate token counting, install `js-tiktoken` as an optional dependency: `npm install js-tiktoken` (~21MB). Without it, the widget uses approximate counting and is ~20MB smaller.
 
 #### Tool Execution Control
-- `maxToolLoops`: Maximum number of tool execution cycles per user message (default: 5)
-  - Controls how many times the AI assistant can call tools in a single conversation turn
-  - Prevents infinite loops and excessive API calls
-  - Each cycle: AI calls tools → tools execute → AI processes results → (repeat if needed)
-  - When limit is reached, the conversation ends with an error message
-  - Recommended range: 3-10 depending on task complexity
+
+Tool execution limits are configured per LLM config in the `llmConfigs` array (see API Configuration section above):
+- `maxToolLoops` controls how many times the AI assistant can call tools in a single conversation turn
+- Prevents infinite loops and excessive API calls
+- Each cycle: AI calls tools → tools execute → AI processes results → (repeat if needed)
+- When limit is reached, the conversation ends with an error message
+- Recommended range: 3-10 depending on task complexity
 
 #### Assistant Customization
 - `assistantName`: Name displayed for AI assistant messages (default: 'AI')
@@ -798,10 +948,38 @@ Available positions:
 
 #### Tools Configuration
 - `toolsSchema`: Custom tools schema array (overrides MCP tools if provided)
-- `validationOptions`: Assistant response validation options (default: null)
-- `toolsMode`: Tools integration mode
-  - `'api'` (default): Standard OpenAI API parameter mode
-  - `'prompt'`: Legacy mode with system prompt description
+- Tool-related settings (`toolsMode`, `validationOptions`) are configured per LLM in the `llmConfigs` array
+
+#### Debug Mode
+- `debug` (boolean, default: `false`): Enable detailed console logging
+
+When enabled, logs the following to browser console:
+- **MCP Protocol**: Client initialization, server connections, tool/resource loading
+- **LLM API Calls**: Request parameters, response metadata, streaming status
+- **Tool Execution**: Tool calls with arguments, execution results, errors
+- **Fallback Events**: Config switching, retry attempts, success/failure status
+
+Example:
+```javascript
+<ChatWidget 
+  debug={true}  // Enable debug logging
+  llmConfigs={[...]}
+/>
+```
+
+Debug output format:
+```
+[Debug] MCP Client: Initializing...
+[Debug] MCP Client: Protocol initialized
+[Debug] MCP Client: Internal tools loaded { count: 3, tools: ['tool1', 'tool2', 'tool3'] }
+[Debug] OpenAI API Request: { model: 'gpt-4o-mini', messageCount: 5, toolsCount: 3 }
+[Debug] Executing Tool Calls: { count: 1, tools: ['getTool'] }
+[Debug] Tool Call: getTool { id: 'call_123', args: {...} }
+[Debug] Tool Result: getTool { id: 'call_123', success: true }
+[Debug] OpenAI API Response: { model: 'gpt-4o-mini', finishReason: 'stop', contentLength: 145 }
+```
+
+**Note:** Debug mode is for development only. Disable in production to reduce console noise and improve performance.
 
 ## Localization
 

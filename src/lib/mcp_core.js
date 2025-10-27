@@ -10,9 +10,10 @@ function generateId() {
 }
 
 class MCPBase {
-  constructor(type, eventTarget = window) {
+  constructor(type, eventTarget = window, debug = false) {
     this.type = type;
     this.eventTarget = eventTarget;
+    this.debug = debug;
     this.pendingRequests = new Map();
     this.requestHandlers = new Map();
     this.setupListeners();
@@ -146,8 +147,8 @@ class MCPBase {
 }
 
 class MCPServer extends MCPBase {
-  constructor(eventTarget = window) {
-    super('server', eventTarget);
+  constructor(eventTarget = window, debug = false) {
+    super('server', eventTarget, debug);
     this.tools = [];
     this.resources = [];
     this.setupProtocolHandlers();
@@ -188,11 +189,15 @@ class MCPServer extends MCPBase {
     // Tool execution
     this.onRequest('mcp.tools.call', async (params) => {
       const { name, arguments: args } = params;
-      console.log('[MCP Server] Received tool call request:', name, 'with args:', args);
+      if (this.debug) {
+        console.log('[Debug] MCP Server: Received tool call request:', name, 'with args:', args);
+      }
       const tool = this.tools.find(t => t.name === name);
 
       if (!tool) {
-        console.error('[MCP Server] Tool not found:', name);
+        if (this.debug) {
+          console.error('[Debug] MCP Server: Tool not found:', name);
+        }
         throw {
           code: 4004,
           message: `Tool '${name}' not found`
@@ -200,12 +205,18 @@ class MCPServer extends MCPBase {
       }
 
       try {
-        console.log('[MCP Server] Executing tool handler for:', name);
+        if (this.debug) {
+          console.log('[Debug] MCP Server: Executing tool handler for:', name);
+        }
         const result = await tool.handler(args);
-        console.log('[MCP Server] Tool execution successful:', name, result);
+        if (this.debug) {
+          console.log('[Debug] MCP Server: Tool execution successful:', name, result);
+        }
         return { success: true, result };
       } catch (error) {
-        console.error('[MCP Server] Tool execution failed:', name, error);
+        if (this.debug) {
+          console.error('[Debug] MCP Server: Tool execution failed:', name, error);
+        }
         throw {
           code: 5001,
           message: `Tool execution failed: ${error.message}`,
@@ -327,7 +338,9 @@ class MCPServer extends MCPBase {
       handler: tool.handler
     });
     
-    console.log('[MCP Server] Tool registered:', tool.name);
+    if (this.debug) {
+      console.log('[Debug] MCP Server: Tool registered:', tool.name);
+    }
   }
 
   registerTools(tools) {
@@ -362,8 +375,8 @@ class MCPServer extends MCPBase {
 }
 
 class MCPClient extends MCPBase {
-  constructor(eventTarget = window) {
-    super('client', eventTarget);
+  constructor(eventTarget = window, debug = false) {
+    super('client', eventTarget, debug);
     this.initialized = false;
     this.tools = [];
     this.resources = [];
@@ -424,12 +437,16 @@ class MCPClient extends MCPBase {
       await this.initialize();
     }
 
-    console.log('[MCP Client] Calling tool:', name, 'with args:', args);
+    if (this.debug) {
+      console.log('[Debug] MCP Client: Calling tool:', name, 'with args:', args);
+    }
     const result = await this.sendRequest('mcp.tools.call', {
       name: name,
       arguments: args
     });
-    console.log('[MCP Client] Tool call result:', result);
+    if (this.debug) {
+      console.log('[Debug] MCP Client: Tool call result:', result);
+    }
     return result;
   }
 
@@ -455,8 +472,8 @@ class MCPClient extends MCPBase {
 }
 
 const MCP = {
-  createServer: (eventTarget = window) => new MCPServer(eventTarget),
-  createClient: (eventTarget = window) => new MCPClient(eventTarget),
+  createServer: (eventTarget = window, debug = false) => new MCPServer(eventTarget, debug),
+  createClient: (eventTarget = window, debug = false) => new MCPClient(eventTarget, debug),
   EVENT_NAME: MCP_EVENT_NAME,
   PROTOCOL_VERSION: MCP_PROTOCOL_VERSION
 };

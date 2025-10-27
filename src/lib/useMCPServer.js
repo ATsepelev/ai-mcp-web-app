@@ -7,11 +7,12 @@ let serverInstance = null;
  * Hook for initializing MCP server
  * @param {Array} tools Array of tools to register
  * @param {Array} resources Array of resources to register
+ * @param {boolean} debug Enable debug logging
  */
-export const useMCPServer = (tools = [], resources = []) => {
+export const useMCPServer = (tools = [], resources = [], debug = false) => {
   useEffect(() => {
     if (!serverInstance) {
-      serverInstance = MCP.createServer();
+      serverInstance = MCP.createServer(window, debug);
 
       // Register tools
       tools.forEach(tool => {
@@ -41,7 +42,7 @@ export const useMCPServer = (tools = [], resources = []) => {
     return () => {
       // Cleanup if needed
     };
-  }, [tools, resources]);
+  }, [tools, resources, debug]);
 
   return serverInstance;
 };

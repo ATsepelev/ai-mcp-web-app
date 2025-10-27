@@ -15,7 +15,7 @@ export const useMCPClient = (options = {}) => {
   const [tools, setTools] = useState([]);
   const [resources, setResources] = useState([]);
   const [status, setStatus] = useState('disconnected'); // disconnected, connecting, connected, partial_connected, error
-  const { mcpServers = {}, envVars = {}, allowedTools = null, blockedTools = [], externalServers = [] } = options;
+  const { mcpServers = {}, envVars = {}, allowedTools = null, blockedTools = [], externalServers = [], debug = false } = options;
   const externalClients = useRef(new Map());
   const initializingRef = useRef(false);
   
@@ -101,14 +101,29 @@ export const useMCPClient = (options = {}) => {
     
     const initClient = async () => {
       try {
+        if (debug) {
+          console.log('[Debug] MCP Client: Initializing...');
+        }
+        
         setStatus('connecting');
-        const internalClient = MCP.createClient();
+        const internalClient = MCP.createClient(window, debug);
 
         // Initialize protocol
         await internalClient.initialize();
+        
+        if (debug) {
+          console.log('[Debug] MCP Client: Protocol initialized');
+        }
 
         // Load tools
         const internalTools = await internalClient.loadTools();
+        
+        if (debug) {
+          console.log('[Debug] MCP Client: Internal tools loaded', {
+            count: internalTools.length,
+            tools: internalTools.map(t => t.name)
+          });
+        }
         
         // Load resources
         let internalResources = [];
@@ -181,7 +196,9 @@ export const useMCPClient = (options = {}) => {
           callTool: async (name, args) => {
             // Check if internal client is initialized
             if (!internalClient || !internalClient.initialized) {
-              console.error('[useMCPClient] Internal client not initialized');
+              if (debug) {
+                console.error('[Debug] MCP Client: Internal client not initialized');
+              }
               throw new Error('MCP client not initialized. Please wait and try again.');
             }
             
@@ -265,6 +282,14 @@ export const useMCPClient = (options = {}) => {
             
             const timeout = srv.timeoutMs || DEFAULT_TIMEOUT;
             
+            if (debug) {
+              console.log(`[Debug] MCP Client: Connecting to external server "${srv.id}"`, {
+                url: srv.url,
+                transport: srv.transport || (srv.url.startsWith('wss:') ? 'ws' : 'sse'),
+                timeout
+              });
+            }
+            
             // Fire and forget - errors are caught inside
             (async () => {
               try {
@@ -295,6 +320,14 @@ export const useMCPClient = (options = {}) => {
                 ]);
                 
                 if (result.success) {
+                  if (debug) {
+                    console.log(`[Debug] MCP Client: External server "${srv.id}" connected`, {
+                      toolsCount: result.tools.length,
+                      resourcesCount: result.resources.length,
+                      tools: result.tools.map(t => t.name || t.tool || t.id)
+                    });
+                  }
+                  
                   // Only add to map after successful initialization
                   externalClients.current.set(srv.id, result.client);
                   externalResultsMap.set(srv.id, { 
@@ -305,6 +338,12 @@ export const useMCPClient = (options = {}) => {
                   });
                 }
               } catch (e) {
+                if (debug) {
+                  console.log(`[Debug] MCP Client: External server "${srv.id}" failed`, {
+                    error: e.message
+                  });
+                }
+                
                 externalResultsMap.set(srv.id, { 
                   id: srv.id, 
                   client: null, 

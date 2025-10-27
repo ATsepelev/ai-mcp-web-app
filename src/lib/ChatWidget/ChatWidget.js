@@ -542,9 +542,18 @@ const ChatWidget = ({
                       greeting = null,
                       chatTitle = 'AI Assistant Chat',
                       assistantName = 'AI',
-                      modelName = 'gpt-4o-mini',
-                      baseUrl = 'http://127.0.0.1:1234/v1',
-                      apiKey = null,
+                      // LLM configuration array (replaces individual modelName, baseUrl, apiKey, etc.)
+                      llmConfigs = [{
+                        modelName: 'gpt-4o-mini',
+                        baseUrl: 'http://127.0.0.1:1234/v1',
+                        apiKey: null,
+                        temperature: 0.5,
+                        maxContextSize: 32000,
+                        maxToolLoops: 5,
+                        systemPromptAddition: null,
+                        validationOptions: null,
+                        toolsMode: 'api'
+                      }],
                       toolsSchema = [],
                       locale = 'en',
                   customLocales = {},
@@ -554,26 +563,16 @@ const ChatWidget = ({
                   blockedTools = [],
                   // Backward compatibility
                   externalServers = null,
-                  // New: opt-in assistant response validation
-                  validationOptions = null,
-                  // Tools mode: 'api' (standard, via API parameter) or 'prompt' (legacy, in system prompt)
-                  toolsMode = 'api',
                   // Widget size parameters
                   expandedWidth = 350,
                   expandedHeight = 400,
-                  // Context size management
-                  maxContextSize = 32000,
-                  // Tool execution control
-                  maxToolLoops = 5,
                   // Theme customization
                   theme = {},
-                  // System prompt customization
-                  systemPromptAddition = null,
-                  // LLM temperature control (0.0-2.0, recommended 0.4-0.6 for chat)
-                  temperature = 0.5,
                   // Chat history persistence
                   persistChatHistory = true,
-                  historyDepthHours = 24
+                  historyDepthHours = 24,
+                  // Debug logging
+                  debug = false
                     }) => {
   const [inputValue, setInputValue] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -635,7 +634,8 @@ const ChatWidget = ({
     mcpServers: finalMcpServers,
     envVars,
     allowedTools,
-    blockedTools
+    blockedTools,
+    debug
   });
 
   const actualToolsSchema = toolsSchema.length > 0
@@ -662,21 +662,14 @@ const ChatWidget = ({
     isLoadingHistory
   } = useOpenAIChat(
     client,
-    modelName,
-    baseUrl,
-    apiKey,
+    llmConfigs,
     actualToolsSchema,
     locale,
-    validationOptions,
-    toolsMode,
-    maxContextSize,
-    maxToolLoops,
-    systemPromptAddition,
-    temperature,
     resources,
     readResource,
     persistChatHistory,
-    historyDepthHours
+    historyDepthHours,
+    debug
   );
 
 
@@ -1066,9 +1059,7 @@ const ChatWidget = ({
       clearChat,
       handleSend,
       handleKeyPress,
-      modelName,
-      baseUrl,
-      apiKey,
+      llmConfigs,
       toolsSchema,
       locale,
       currentLocale,
@@ -1085,11 +1076,10 @@ const ChatWidget = ({
       expandedWidth,
       expandedHeight,
       theme: mergedTheme,
-      systemPromptAddition,
-      temperature,
       persistChatHistory,
       historyDepthHours,
-      isLoadingHistory
+      isLoadingHistory,
+      debug
     };
 
     return React.cloneElement(customComponent, customProps);

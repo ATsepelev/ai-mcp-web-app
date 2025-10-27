@@ -19,9 +19,18 @@ function App() {
       <ChatWidget
         greeting="Hello! I'm your AI assistant with access to tools."
         chatTitle="AI Assistant"
-        modelName="devstral-small-2507"
-        //baseUrl="https://api.mistral.ai/v1"
-        baseUrl="http://localhost:1234/v1"
+        llmConfigs={[
+          {
+            modelName: "devstral-small-2507",
+            baseUrl: "http://localhost:1234/v1",
+            // baseUrl: "https://api.mistral.ai/v1",
+            apiKey: "",
+            temperature: 0.5,
+            maxContextSize: 32000,
+            maxToolLoops: 5,
+            toolsMode: "api"
+          }
+        ]}
         // Example with new MCP servers format
         // mcpServers={{
         //   "files": {
@@ -40,7 +49,6 @@ function App() {
         //   API_KEY: process.env.REACT_APP_API_KEY
         // }}
         // allowedTools={["files.readFile", "api.getData"]}
-        apiKey={""}
         locale="en"
         // Chat history persistence (enabled by default)
         // persistChatHistory={true}  // Set to false to disable history
